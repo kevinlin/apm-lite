@@ -493,3 +493,11 @@ def test_generic_hooks_named_hooks_star_are_sources_and_no_json_is_bundled(tmp_p
     entries, files, _ = plan_hooks(_pkg(tmp_path), TARGETS["claude"])
     assert [e.event for e in entries] == ["Stop"]
     assert sorted(files) == [".claude/hooks/pkg/check.sh", ".claude/hooks/pkg/package.json"]
+
+
+def test_only_apm_packages_deploy_hooks(tmp_path):
+    _hooks(tmp_path, "hooks.json", {"Stop": [{"command": "./check.sh"}]})
+    pkg = _pkg(tmp_path)
+    for package_type in ("skill_bundle", "claude_skill", "hybrid"):
+        pkg.package_type = package_type
+        assert plan_hooks(pkg, TARGETS["claude"]) == ([], {}, [])

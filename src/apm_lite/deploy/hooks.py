@@ -153,6 +153,8 @@ def plan_hooks(
     target: Target,
 ) -> tuple[list[HookEntry], dict[str, PlannedFile], list[str]]:
     """Select hook sources, render native entries and plan their self-contained bundle."""
+    if pkg.depth != 0 and pkg.package_type != "apm_package":
+        return [], {}, []  # hooks, like rules, come only from APM packages and the project (R8)
     hooks_root = pkg.source_dir / ".apm" / "hooks"
     if not hooks_root.is_dir() or _has_symlink(hooks_root.absolute(), pkg.source_dir.absolute()):
         return [], {}, []
