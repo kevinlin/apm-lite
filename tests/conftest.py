@@ -1,146 +1,158 @@
-# Root conftest.py -- shared pytest configuration
-#
-# Test directory structure:
-#   tests/unit/          -- Fast isolated unit tests (default CI scope)
-#   tests/integration/   -- E2E tests requiring network / external services
-#   tests/acceptance/    -- Acceptance criteria tests
-#   tests/benchmarks/    -- Performance benchmarks (excluded by default)
-#   tests/test_*.py      -- Root-level tests (mixed unit/integration)
-#
-# Quick reference:
-#   uv run pytest tests/unit tests/test_console.py -x   # CI-equivalent fast run
-#   uv run pytest                                         # Full suite
-#   uv run pytest -m benchmark                            # Benchmarks only
-#
-# Path.home() override (top of file, runs at conftest import time on every
-# pytest-xdist worker): the windows-2025-vs2026 GitHub-hosted runner does not
-# seed USERPROFILE / HOMEDRIVE / HOMEPATH for pytest-xdist worker subprocesses,
-# so Path.home() raises RuntimeError. Earlier attempts patched only the env
-# vars in tests/unit/conftest.py, but at least one xdist worker (gw2) still
-# evaluated Path.home() before that conftest's import-time mutation took
-# effect. Override Path.home() directly here -- the root conftest is loaded
-# by every worker before any test in any test directory runs, so this is
-# the earliest hook we have without writing a pytest plugin.
+"""Shared fixtures: an offline fake internal Git server and an empty project dir."""
 
-import contextlib
+from __future__ import annotations
+
 import os
-import tempfile
+import shutil
+import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
-_TMP_HOME = Path(tempfile.mkdtemp(prefix="apm-test-home-"))
+# Fixed so commit and tag SHAs are reproducible across runs and machines.
+COMMIT_DATE = "2026-01-01T00:00:00+00:00"
+DEFAULT_BRANCH = "main"
+FAKE_HOST = "git.test"
 
 
-def _ensure_home_env(home: Path) -> None:
-    home_str = str(home)
-    os.environ["HOME"] = home_str
-    if os.name == "nt":
-        os.environ["USERPROFILE"] = home_str
-        drive, _, tail = home_str.partition(":")
-        if tail:
-            os.environ["HOMEDRIVE"] = f"{drive}:"
-            os.environ["HOMEPATH"] = tail
+def _git(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> str:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env={**os.environ, **(env or {})},
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        cmd = " ".join(["git", *args])
+        raise RuntimeError(f"{cmd} failed ({proc.returncode}): {proc.stderr.strip()}")
+    return proc.stdout.strip()
 
 
-_ensure_home_env(_TMP_HOME)
+class ServerRepo:
+    """A bare repo on the fake server plus a work clone used to publish to it."""
+
+    def __init__(self, path: str, bare: Path, work: Path):
+        self.path = path
+        self.bare = bare
+        self.work = work
+
+    @property
+    def https(self) -> str:
+        return f"https://{FAKE_HOST}/{self.path}.git"
+
+    @property
+    def ssh(self) -> str:
+        return f"ssh://git@{FAKE_HOST}/{self.path}.git"
+
+    @property
+    def scp(self) -> str:
+        return f"git@{FAKE_HOST}:{self.path}.git"
+
+    def _work_git(self, *args: str) -> str:
+        dates = {"GIT_AUTHOR_DATE": COMMIT_DATE, "GIT_COMMITTER_DATE": COMMIT_DATE}
+        return _git(*args, cwd=self.work, env=dates)
+
+    def commit(
+        self,
+        files: dict[str, str | bytes],
+        message: str = "c",
+        exec_files: Iterable[str] = (),
+    ) -> str:
+        """Replace the whole tree with `files`, commit, push, and return the SHA."""
+        for child in self.work.iterdir():
+            if child.name == ".git":
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        executable = set(exec_files)
+        for rel, content in files.items():
+            dest = self.work / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(content.encode() if isinstance(content, str) else content)
+            dest.chmod(0o755 if rel in executable else 0o644)
+        self._work_git("add", "-A")
+        self._work_git("commit", "--allow-empty", "-q", "-m", message)
+        self._work_git("push", "-q", "origin", DEFAULT_BRANCH)
+        return self._work_git("rev-parse", "HEAD")
+
+    def tag(
+        self,
+        name: str,
+        sha: str | None = None,
+        *,
+        annotated: bool = False,
+        force: bool = False,
+    ) -> None:
+        target = sha or self._work_git("rev-parse", "HEAD")
+        cmd = ["tag"]
+        if annotated:
+            cmd += ["-a", "-m", name]
+        if force:
+            cmd.append("-f")
+        self._work_git(*cmd, name, target)
+        self._work_git("push", "-q", *(["--force"] if force else []), "origin", f"refs/tags/{name}")
+
+    def branch(self, name: str, sha: str | None = None) -> None:
+        target = sha or self._work_git("rev-parse", "HEAD")
+        self._work_git("push", "-q", "origin", f"{target}:refs/heads/{name}")
+
+    def set_config(self, key: str, value: str) -> None:
+        _git("config", key, value, cwd=self.bare)
 
 
-def _hermetic_home(_cls=Path) -> Path:
-    """Resolve a home dir without ever raising.
+class GitServer:
+    """Serves bare repos under `<tmp>/server/` for the fake host `git.test`."""
 
-    Honors HOME / USERPROFILE / HOMEDRIVE+HOMEPATH so per-test
-    `monkeypatch.setenv("HOME", ...)` (or its Windows-trio equivalent)
-    keeps working. Falls back to a hermetic tmp dir only when the env
-    is empty -- which is the windows-2025-vs2026 xdist worker case.
-    """
-    home = os.environ.get("HOME")
-    if not home and os.name == "nt":
-        home = os.environ.get("USERPROFILE")
-        if not home:
-            drive = os.environ.get("HOMEDRIVE", "")
-            tail = os.environ.get("HOMEPATH", "")
-            if tail:
-                home = drive + tail
-    return Path(home) if home else _TMP_HOME
+    def __init__(self, root: Path, work_root: Path, gitconfig: Path):
+        self.root = root
+        self.work_root = work_root
+        self.gitconfig = gitconfig
+        self._rewrites_written = False
 
+    def _write_rewrites(self) -> None:
+        if self._rewrites_written:
+            return
+        key = f"url.file://{self.root}/.insteadOf"
+        for prefix in (f"https://{FAKE_HOST}/", f"ssh://git@{FAKE_HOST}/", f"git@{FAKE_HOST}:"):
+            _git("config", "--file", str(self.gitconfig), "--add", key, prefix)
+        self._rewrites_written = True
 
-# Override Path.home() so any code path -- production or test -- that calls
-# it during the test run gets the hermetic tmp dir, regardless of whether
-# the runner subprocess inherited a usable HOME / USERPROFILE.
-Path.home = classmethod(_hermetic_home)  # type: ignore[method-assign]
-
-
-# Same problem, different code path: Path("~/pkg").expanduser() goes through
-# ntpath.expanduser, which raises RuntimeError("Could not determine home
-# directory.") on the windows-2025-vs2026 runner when USERPROFILE and
-# HOMEPATH are both absent. Production code (e.g. install.package_resolution
-# user_scope_rejection_reason) relies on expanduser to detect that ~/pkg is
-# absolute. Wrap Path.expanduser so the RuntimeError can never surface.
-_ORIGINAL_EXPANDUSER = Path.expanduser
+    def repo(self, path: str) -> ServerRepo:
+        self._write_rewrites()
+        bare = self.root / f"{path}.git"
+        work = self.work_root / path
+        bare.parent.mkdir(parents=True, exist_ok=True)
+        _git("init", "--bare", "-q", str(bare))
+        _git("symbolic-ref", "HEAD", f"refs/heads/{DEFAULT_BRANCH}", cwd=bare)
+        work.parent.mkdir(parents=True, exist_ok=True)
+        _git("clone", "-q", str(bare), str(work))
+        _git("symbolic-ref", "HEAD", f"refs/heads/{DEFAULT_BRANCH}", cwd=work)
+        return ServerRepo(path, bare, work)
 
 
-def _hermetic_expanduser(self):
-    try:
-        return _ORIGINAL_EXPANDUSER(self)
-    except RuntimeError:
-        parts = self.parts
-        if not parts or not parts[0].startswith("~"):
-            return self
-        remainder = parts[1:]
-        return _TMP_HOME.joinpath(*remainder) if remainder else _TMP_HOME
+@pytest.fixture
+def git_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    gitconfig = tmp_path / "gitconfig"
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(gitconfig))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    for role in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
+        monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@git.test")
+    return gitconfig
 
 
-Path.expanduser = _hermetic_expanduser  # type: ignore[method-assign]
+@pytest.fixture
+def git_server(tmp_path: Path, git_env: Path) -> GitServer:
+    return GitServer(tmp_path / "server", tmp_path / "work", git_env)
 
 
-@pytest.fixture(autouse=True, scope="session")
-def _validate_primitive_coverage():
-    """Fail fast if KNOWN_TARGETS has primitives without dispatch handlers."""
-    from apm_cli.integration.coverage import check_primitive_coverage
-    from apm_cli.integration.dispatch import get_dispatch_table
-
-    dispatch = get_dispatch_table()
-    check_primitive_coverage(dispatch)
-
-
-@pytest.fixture(autouse=True)
-def _isolate_discovery_state():
-    """Clear process-scoped discovery cache + perf counters between tests.
-
-    These globals are reset at the top of ``run_install_pipeline`` in
-    production, but unit tests exercise ``discover_primitives`` and
-    ``find_primitive_files`` directly. Without this fixture, cache hits
-    from test A would silently shadow walk-time measurements (and even
-    primitive results) in test B -- making the suite order-dependent.
-    See review notes for #1533.
-    """
-    from apm_cli.primitives.discovery import clear_discovery_cache
-    from apm_cli.utils import perf_stats
-
-    clear_discovery_cache()
-    perf_stats.reset()
-    yield
-    clear_discovery_cache()
-    perf_stats.reset()
-
-
-@pytest.fixture(autouse=True)
-def _hermetic_copilot_plugin_capability():
-    """Reset native Agent Plugin registration state between tests.
-
-    Admission is a pure function of resolved target names -- it never reads
-    the host (no binary probe, no version, no environment override), so
-    there is nothing to pin here. This fixture only resets the published
-    capability contextvar so one test's ``activate_native_registration``
-    call can never leak into the next.
-    """
-    from apm_cli.copilot_plugins.capability import _ACTIVE as _capability_var
-    from apm_cli.copilot_plugins.capability import reset_native_registration
-
-    token = _capability_var.set(None)
-    try:
-        yield
-    finally:
-        with contextlib.suppress(ValueError):
-            reset_native_registration(token)
+@pytest.fixture
+def project(tmp_path: Path) -> Path:
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    return proj

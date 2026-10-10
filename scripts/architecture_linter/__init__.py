@@ -1,1 +1,0 @@
-"""Architecture boundary linter support."""

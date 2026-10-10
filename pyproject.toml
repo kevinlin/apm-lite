@@ -3,74 +3,40 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "apm-cli"
-version = "0.33.0"
-description = "MCP configuration tool"
+name = "apm-lite"
+version = "0.1.0"
+description = "Agent package manager for Claude Code and Antigravity on internal Git"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-authors = [
-    {name = "Daniel Meppiel", email = "user@example.com"}
-]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
 ]
 dependencies = [
     "click>=8.0.0",
-    "colorama>=0.4.6",
-    "pyyaml>=6.0.0",
-    "requests>=2.31.0",
-    "truststore>=0.10.0",
-    "python-frontmatter>=1.0.0",
-    "llm>=0.28",
-    "llm-github-models>=0.18.0",
-    "tomli>=1.2.0; python_version<'3.11'",
-    "toml>=0.10.2",
-    "tomlkit>=0.13",
-    "rich>=13.0.0",
-    "rich-click>=1.7.0",
-    "watchdog>=3.0.0",
-    "GitPython>=3.1.0",
+    "PyYAML>=6.0",
     "ruamel.yaml>=0.18.0",
-    "filelock>=3.12",
-    "websockets>=12,<17",
+    "python-frontmatter>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-xdist>=3.0.0",
-    "pytest-split>=0.9.0",
-    "ruff>=0.11.0",
-    "mypy>=1.0.0",
-    "jsonschema>=4.0.0",
-    "pylint>=3.0.0",
-    "hypothesis>=6.0.0",
-    "mutmut==3.6.0",
-]
-build = [
-    "pyinstaller>=6.17.0",
+    "pytest>=7.0",
+    "ruff>=0.11",
 ]
 
 [project.scripts]
-apm = "apm_cli.cli:main"
+apm = "apm_lite.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["apm_cli*", "apm_lite*"]
-
-[tool.setuptools.package-data]
-# Belt-and-suspenders: ship the child-TLS .pth alongside the bootstrap module.
-# Delivery no longer depends on this (ensure_child_tls_bootstrap generates the
-# .pth inline), but packaging it keeps the source tree and wheel in sync.
-"apm_cli.core._child_tls" = ["*.pth"]
+include = ["apm_lite*"]
 
 [tool.ruff]
 line-length = 100
@@ -92,136 +58,31 @@ select = [
 ignore = [
     "PLR2004",  # magic-value-comparison -- too noisy, especially in tests
     "E501",     # line-too-long -- ruff format handles code; remaining are strings/URLs
-    # --- Permanently ignored: intentional patterns in a CLI tool ---
-    "SIM117",   # multiple-with-statements -- style preference, 65 violations
+    "SIM117",   # multiple-with-statements -- style preference
     "S110",     # try-except-pass -- intentional graceful degradation in CLI error handling
-    "S602",     # subprocess-popen-with-shell -- intentional in CLI wrapping git/pip
-    # --- Deferred rules: enable in dedicated future PRs ---
-    "SIM102",   # collapsible-if -- 28 violations, auto-fixable style improvement
+    "S602",     # subprocess-popen-with-shell -- intentional in CLI wrapping git
+    "SIM102",   # collapsible-if -- auto-fixable style improvement
 ]
 
 [tool.ruff.lint.pylint]
-# High initial thresholds set just above current codebase maximums.
-# Prevents new code from exceeding the worst existing violations.
-# Tighten these over time via dedicated refactoring PRs.
-# Stage 1 thresholds (PR #1464, issue #1077).
-# Roadmap: Stage 2 targets max-complexity<=20, max-branches<=25 (McCabe standard).
-max-statements = 200   # Stage 1 (was 275)
-max-args = 15          # Stage 1 (was 18)
-max-branches = 60      # Stage 1 (was 115)
-max-returns = 12       # Stage 1 (was 18)
+max-statements = 200
+max-args = 15
+max-branches = 60
+max-returns = 12
 
 [tool.ruff.lint.mccabe]
-# Stage 1 (was 100). Stage 2 target: <=20 (McCabe industry standard).
 max-complexity = 50
 
 [tool.ruff.lint.isort]
-known-first-party = ["apm_cli"]
+known-first-party = ["apm_lite"]
 
 [tool.ruff.lint.per-file-ignores]
-# Subprocess calls are intentional in a CLI tool
-"src/apm_cli/**" = ["S603", "S607"]
+"tests/**" = ["S101", "S103", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
 "src/apm_lite/**" = ["S603", "S607"]
-# Tests: assert is expected; security rules produce false positives on fixtures;
-# F821 undefined-name from TYPE_CHECKING + PEP 563 deferred annotations
-"tests/**" = ["S101", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
-"tests_lite/**" = ["S101", "S103", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
-# Files using `from __future__ import annotations` with forward-reference-only
-# type imports (PEP 563). Ruff cannot resolve these without a type checker.
-"src/apm_cli/policy/ci_checks.py" = ["F821", "S603", "S607"]
-"src/apm_cli/policy/policy_checks.py" = ["F821", "S603", "S607"]
-"src/apm_cli/security/audit_report.py" = ["F821", "S603", "S607"]
-"src/apm_cli/cli.py" = ["F821", "S603", "S607"]
-"src/apm_cli/commands/audit.py" = ["F821", "S603", "S607"]
-"src/apm_cli/commands/init.py" = ["F821", "S603", "S607"]
-"src/apm_cli/install/pipeline.py" = ["F821", "S603", "S607"]
-"src/apm_cli/integration/skill_integrator.py" = ["F821", "S603", "S607"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-
-[tool.coverage.run]
-source = ["src/apm_cli"]
-branch = true
-parallel = true
-
-[tool.coverage.report]
-show_missing = true
-skip_empty = true
-fail_under = 80
-# Exclude lines that are not meant to be covered
-exclude_lines = [
-    "pragma: no cover",
-    "if __name__ == .__main__.",
-    "if TYPE_CHECKING:",
-    "raise NotImplementedError",
-    "@overload",
-]
-
-[tool.mutmut]
-source_paths = ["src/"]
-only_mutate = [
-    "src/apm_cli/models/dependency/subsets.py",
-    "src/apm_cli/install/plan.py",
-    "src/apm_cli/policy/discovery.py",
-    "src/apm_cli/compilation/link_resolver.py",
-    "src/apm_cli/deps/lockfile.py",
-]
-pytest_add_cli_args = [
-    "-n0",
-    "-p",
-    "no:cacheprovider",
-    "-o",
-    "addopts=",
-]
-pytest_add_cli_args_test_selection = [
-    "tests/unit/test_skill_subset_persistence.py",
-    "tests/unit/test_dep_targets_persistence.py",
-    "tests/unit/install/test_plan.py",
-    "tests/unit/policy/test_cache_merged_effective.py::test_policy_serializer_covers_every_dataclass_leaf",
-    "tests/unit/policy/test_cache_merged_effective.py::test_policy_serializer_preserves_sparse_bin_deploy_shapes",
-    "tests/unit/policy/test_cache_merged_effective.py::TestPolicyRoundTrip::test_all_effective_policy_fields_survive_cache_round_trip",
-    "tests/unit/compilation/test_link_resolver.py",
-    "tests/unit/compilation/test_link_resolver_phase3.py",
-    "tests/unit/compilation/test_link_resolver_resolution.py",
-    "tests/unit/deps/test_lockfile_field_properties.py",
-]
-timeout_constant = 1.0
-timeout_multiplier = 5.0
-use_setproctitle = false
-
 [tool.pytest.ini_options]
-addopts = "-m 'not benchmark and not live' --strict-markers"
 testpaths = ["tests"]
-markers = [
-    "unit: pure logic with no filesystem and no CLI",
-    "component: in-process behavior that touches a filesystem or one command boundary",
-    "e2e: a real installed CLI crossing at least one command boundary",
-    "integration: marks tests as integration tests that may require network access",
-    "live: marks tests that hit real GitHub repos (requires network + optional GITHUB_TOKEN)",
-    "slow: marks tests as slow running tests",
-    "benchmark: marks performance benchmark tests (deselected by default, run with -m benchmark)",
-    "windows_compat: load-bearing cross-platform regression contract family (CRLF-safe atomic writes, portable path formatting, git-executable resolution, socket/thread shutdown); runs on every OS and is additionally selected by the PR-time Windows Compatibility Gate -- NOT a requires_windows skip-gate, do not use requires_windows for this",
-    "trusted_executable: native trusted git/gh discovery and real consumer regressions; additionally selected on Windows Python 3.10 and 3.11",
-    "requires_e2e_mode: requires APM_E2E_TESTS=1",
-    "requires_github_token: requires GITHUB_APM_PAT or GITHUB_TOKEN",
-    "requires_ado_pat: requires ADO_APM_PAT",
-    "requires_ado_bearer: requires az CLI logged in + APM_TEST_ADO_BEARER=1",
-    "requires_network_integration: requires APM_RUN_INTEGRATION_TESTS=1",
-    "requires_windows: requires a Windows host",
-    "requires_windows_native_standard_user: requires the disposable Windows runner's verified non-admin token and symlink denial",
-    "requires_apm_binary: requires built apm binary on PATH (or APM_BINARY_PATH)",
-    "requires_runtime_codex: requires codex runtime installed",
-    "requires_runtime_copilot: requires GitHub Copilot CLI runtime installed",
-    "requires_runtime_llm: requires llm runtime installed",
-    "requires_inference: requires APM_RUN_INFERENCE_TESTS=1 + model API access",
-    "req: binds a test to one or more OpenAPM req-XXX ids (spec-conformance suite)",
-    "lifecycle_smoke: promoted to the required PR-time Lifecycle Smoke (Linux) job -- see ci.yml's lifecycle-smoke job and docs/src/content/docs/contributing/integration-testing.md",
-    "lifecycle_merge_group: unique lifecycle contracts retained in the full merge-group integration suite",
-    "xdist_group(name): assigns HOME-mutating tests to one pytest-xdist loadgroup for process-level serialization",
-]

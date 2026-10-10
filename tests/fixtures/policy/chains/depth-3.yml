@@ -1,4 +1,0 @@
-# Chain level 3: extends depth-2
-name: depth-level-3
-version: "1.0.0"
-extends: contoso-depth-2/policy

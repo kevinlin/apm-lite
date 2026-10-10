@@ -1,8 +1,0 @@
-name: url-parent
-enforcement: block
-dependencies:
-  deny:
-    - parent/blocked-one
-    - parent/blocked-two
-  require:
-    - corp/required
