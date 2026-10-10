@@ -64,7 +64,7 @@ apm = "apm_cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["apm_cli*"]
+include = ["apm_cli*", "apm_lite*"]
 
 [tool.setuptools.package-data]
 # Belt-and-suspenders: ship the child-TLS .pth alongside the bootstrap module.
@@ -124,6 +124,7 @@ known-first-party = ["apm_cli"]
 # Tests: assert is expected; security rules produce false positives on fixtures;
 # F821 undefined-name from TYPE_CHECKING + PEP 563 deferred annotations
 "tests/**" = ["S101", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
+"tests_lite/**" = ["S101", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
 # Files using `from __future__ import annotations` with forward-reference-only
 # type imports (PEP 563). Ruff cannot resolve these without a type checker.
 "src/apm_cli/policy/ci_checks.py" = ["F821", "S603", "S607"]
