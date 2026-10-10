@@ -246,7 +246,7 @@ local_deployed_file_hashes: {...}
 | rules | `.claude/rules/<name>.md` | `.agents/rules/<name>.md` |
 | skills | `.claude/skills/<name>/` | `.agents/skills/<name>/` |
 | hook config | `.claude/settings.json`, key `hooks` | `.agents/hooks.json`, key `apm` |
-| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` |
+| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` (commands reference `hooks/<pkg>/…`, since the hook cwd is `.agents/`) |
 | hook ownership sidecar | `.claude/apm-hooks.json` | `.agents/apm-hooks.json` |
 | events skipped (R24) | `PreInvocation`, `PostInvocation` | anything except `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop` |
 
@@ -297,7 +297,7 @@ Scripts:
 - `<pkg>` is the last segment of `repo_path`, the local folder name, or the root project's `name`, and must pass `fs.safe_name`.
 - Command rewrite (ported from `integration/hook_integrator.py:576-599`):
   - Claude: `${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<rel>`, always in double quotes. An unquoted or double-quoted token gets double quotes. A single-quoted token has its single quotes replaced by double quotes, because the shell doesn't expand variables inside single quotes. A path with `$`, a backtick or `"` is an `ApmError`.
-  - Antigravity: `.agents/hooks/<pkg>/<rel>`.
+  - Antigravity: `hooks/<pkg>/<rel>`, relative to `.agents/`. `agy` runs hooks with `.agents/` as the working directory, not the project root (checked with `agy` 1.3.3, §11). Upstream's `.agents/hooks/<pkg>/<rel>` fails with "No such file or directory".
 
 Native entry shapes:
 - Claude: always nested: `{"matcher": <matcher or "*">, "hooks": [{"type": "command", "command": ..., "timeout": ...}]}`. Event names pass through, except the skipped ones (§6.1).
@@ -481,7 +481,13 @@ Order:
 - **Sequential fetch:** fine for tens of packages. Parallelise later if needed.
 - **No global git cache:** each project clones its own packages. A warm `apm_modules/` at the locked commit skips fetching.
 - **In-memory undo log:** errors and Ctrl-C roll back fully; a hard kill during deployment can leave partial changes (§7.1).
-- **Antigravity rule frontmatter** (`globs` as a string, explicit `always_on`) follows the docs, not upstream. **Antigravity hook commands are relative** (`.agents/hooks/<pkg>/x.sh`), as upstream does, which assumes `agy` runs hooks from the project root. Plan Task 0 checks both with `agy` 1.3.3 before the rule and hook tasks are accepted; record its result here.
+- **Antigravity behaviour, checked 2026-10-10 with `agy` 1.3.3 (plan Task 0):**
+  - `trigger: always_on` loads; `agy` reports it as `always`.
+  - `trigger: glob` with `globs: "**/*.py,**/*.pyi"` (one comma-separated string) applies once a matching file is read.
+  - `.agents/skills/<name>/SKILL.md` loads.
+  - `.agents/hooks.json` with an `apm` container works. `agy` names the hooks `jsonhook__apm_<Event>_<i>_<j>`. `PreInvocation` (flat) and `PreToolUse` (nested) both fire.
+  - Hooks run with **`.agents/`** as the working directory. The workspace root is only given on stdin (`workspacePaths`), not in an env var. Commands are therefore written relative to `.agents/` (§6.4). Hook scripts that need the project root should read `workspacePaths` from stdin, and `docs/authoring-packages.md` says so.
+  - A PreToolUse hook that fails (for example, a missing script) blocks every tool call. Deployed command paths must be right, which the Task 15 `agy` end-to-end check confirms.
 - **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/authoring-packages.md`.
 - **Claude hook events aren't validated** beyond skipping Antigravity-only events. Claude's event list changes often, and an unknown event is ignored by Claude rather than breaking it.
 

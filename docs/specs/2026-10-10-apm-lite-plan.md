@@ -48,7 +48,7 @@ Routing rule:
 
 | Task | Identity | Depends | Acceptance (must pass) |
 |---|---|---|---|
-| 0 Antigravity format spike | driver | – (needs `agy` login) | spike report recorded in design §11 |
+| 0 Antigravity format spike | driver | – (needs `agy` login) | done 2026-10-10: recorded in design §11 |
 | 1 Scaffold, model, fixtures | fast_worker | – | `uv run pytest tests_lite/test_fixtures.py -q` |
 | 2 `fs.py` | deep_reasoner | 1 | `uv run pytest tests_lite/test_fs.py -q` |
 | 3 `refs.py`, `manifest.py` | fast_worker | 1 | `uv run pytest tests_lite/test_refs.py tests_lite/test_manifest.py -q` |
@@ -926,7 +926,7 @@ def rewrite_command(command: str, *, target: str, label: str, hook_file_dir: Pat
     # upstream hook_command_paths.py: r"(?<![.$])(\.[\\/][^\s\"']+)"); scripts must be regular
     # non-symlink files inside hooks_root (= package_root/.apm/hooks); claude ->
     # "\"${CLAUDE_PROJECT_DIR}/.claude/hooks/<label>/<rel>\"" (single quotes replaced, double kept);
-    # antigravity -> ".agents/hooks/<label>/<rel>"; ApmError on $, ` or " in rel
+    # antigravity -> "hooks/<label>/<rel>" (agy runs hooks with cwd .agents/); ApmError on $, ` or " in rel
 def plan_hooks(pkg: ResolvedPackage, target: Target
               ) -> tuple[list[HookEntry], dict[str, PlannedFile], list[str]]: ...
     # (entries, script files, warnings); sources per design §6.4 selection; skipped events warn
@@ -981,7 +981,7 @@ def test_rewrite_claude(tmp_path, cmd, expected):
 def test_rewrite_antigravity_relative(tmp_path):
     d = _hooks(tmp_path, "h.json", {})
     assert rewrite_command("./check.sh", target="antigravity", label="pkg", hook_file_dir=d,
-                           hooks_root=d, package_root=tmp_path) == ".agents/hooks/pkg/check.sh"
+                           hooks_root=d, package_root=tmp_path) == "hooks/pkg/check.sh"
 
 def test_script_outside_hooks_rejected(tmp_path):
     d = _hooks(tmp_path, "h.json", {}); (tmp_path / "scripts").mkdir()
@@ -1005,7 +1005,7 @@ def test_plan_selects_target_file_and_skips_events(tmp_path):
     assert ".claude/hooks/pkg/hooks.json" not in c_files
     a, _, _ = plan_hooks(_pkg(tmp_path), TARGETS["antigravity"])
     assert [e.event for e in a] == ["PreToolUse", "Stop"]
-    assert a[1].entry == {"type": "command", "command": ".agents/hooks/pkg/check.sh"}
+    assert a[1].entry == {"type": "command", "command": "hooks/pkg/check.sh"}
 
 def _entry(cmd, event="PreToolUse"):
     return HookEntry(event=event, entry={"matcher": "*", "hooks": [{"type": "command", "command": cmd}]},
@@ -1581,5 +1581,5 @@ Content checklist:
 - [ ] Size target: `find src/apm_lite -name '*.py' | xargs grep -cv '^\s*$' | awk -F: '{s+=$2} END {print s}'` reports about 3000. Report the number; it isn't a gate.
 - [ ] Network check: `grep -rn "requests\|urllib\|http.client\|socket" src/apm_lite` is empty (N1).
 - [ ] Whole-branch review against the requirements, R1–R38 and N1–N9. Record any gaps as follow-up tasks.
-- [ ] Antigravity end-to-end (driver, with `agy` logged in): run the built `apm install` in a sample project with `targets: [antigravity]`. Repeat Task 0's `agy -p` probe against the real output, and confirm the rules, skill and hooks load and that the hook log shows the project root as the working directory.
+- [ ] Antigravity end-to-end (driver, with `agy` logged in): run the built `apm install` in a sample project with `targets: [antigravity]`. Repeat Task 0's `agy -p` probe against the real output, and confirm the rules, skill and hooks load and that the deployed hook scripts run (cwd `.agents/`, no "No such file" errors).
 - [ ] Write the agent-handoff session receipt.
