@@ -1,0 +1,155 @@
+{
+  "entries": [
+    {
+      "raw": "https://git.test/t/base.git#v1.0.0",
+      "ref": "v1.0.0",
+      "key": "git.test/t/base",
+      "install_path": "apm_modules/t/base"
+    },
+    {
+      "raw": "ssh://git@git.test:7999/t/hooks.git#main",
+      "ref": "main",
+      "key": "git.test/t/hooks",
+      "install_path": "apm_modules/t/hooks"
+    },
+    {
+      "raw": "git@git.test:t/single.git",
+      "ref": null,
+      "key": "git.test/t/single",
+      "install_path": "apm_modules/t/single"
+    },
+    {
+      "raw": {
+        "git": "https://git.test/t/skills.git",
+        "ref": "v2",
+        "skills": [
+          "a",
+          "c"
+        ]
+      },
+      "ref": "v2",
+      "key": "git.test/t/skills",
+      "install_path": "apm_modules/t/skills"
+    },
+    {
+      "raw": "./packages/own",
+      "ref": null,
+      "key": "./packages/own",
+      "install_path": null
+    }
+  ],
+  "deployed": {
+    ".agents/hooks/hooks/check.sh": {
+      "owner": "git.test/t/hooks",
+      "hash": "sha256:306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"
+    },
+    ".agents/rules/own.md": {
+      "owner": "./packages/own",
+      "hash": "sha256:c24bf8e611b29b5cc362aae5a5fd2de630051c9c7aef5acd2d00142016dc6d14"
+    },
+    ".agents/rules/project.md": {
+      "owner": ".",
+      "hash": "sha256:3c0ed9b8f3692abce8dd2dd9fe304b7396f498ec90b15863f3cc11cd10033204"
+    },
+    ".agents/rules/style.md": {
+      "owner": "git.test/t/base",
+      "hash": "sha256:3c0ed9b8f3692abce8dd2dd9fe304b7396f498ec90b15863f3cc11cd10033204"
+    },
+    ".agents/skills/a": {
+      "owner": "git.test/t/skills",
+      "hash": null
+    },
+    ".agents/skills/a/SKILL.md": {
+      "owner": "git.test/t/skills",
+      "hash": "sha256:06df7db731b3a2b533837f4e9e535549d7c4d5b1863d6864cae22683559e44ae"
+    },
+    ".agents/skills/c": {
+      "owner": "git.test/t/skills",
+      "hash": null
+    },
+    ".agents/skills/c/SKILL.md": {
+      "owner": "git.test/t/skills",
+      "hash": "sha256:5f390d5b62e812f9584b16b9f6c8a15034d3e6e6c54c2a95ab87afbfdda2c169"
+    },
+    ".agents/skills/leaf": {
+      "owner": "git.test/t/leaf",
+      "hash": null
+    },
+    ".agents/skills/leaf/SKILL.md": {
+      "owner": "git.test/t/leaf",
+      "hash": "sha256:0b5fa55dd6144bb1041f02a3c587d8c1e995ca9ff330e79e560f60c4deea3219"
+    },
+    ".agents/skills/review": {
+      "owner": "git.test/t/base",
+      "hash": null
+    },
+    ".agents/skills/review/SKILL.md": {
+      "owner": "git.test/t/base",
+      "hash": "sha256:3b095a4dd603e09bbeff692720482769d53bba4cabcecc781f3666d38b5f1d97"
+    },
+    ".agents/skills/single": {
+      "owner": "git.test/t/single",
+      "hash": null
+    },
+    ".agents/skills/single/SKILL.md": {
+      "owner": "git.test/t/single",
+      "hash": "sha256:2a60e401d8c1fff756df67cbf02f6a729bc2987be13a9c6719b0b8e5103e601e"
+    },
+    ".claude/hooks/hooks/check.sh": {
+      "owner": "git.test/t/hooks",
+      "hash": "sha256:306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"
+    },
+    ".claude/rules/own.md": {
+      "owner": "./packages/own",
+      "hash": "sha256:cf93afcd5ba9888ac6458f58bfdcf33fcdced479712ab858badf13564e79dcff"
+    },
+    ".claude/rules/project.md": {
+      "owner": ".",
+      "hash": "sha256:fe32ae0b003e1e7c0f3e4e5cf0053cd530987532ffbf988af51cb15e888508a9"
+    },
+    ".claude/rules/style.md": {
+      "owner": "git.test/t/base",
+      "hash": "sha256:fe32ae0b003e1e7c0f3e4e5cf0053cd530987532ffbf988af51cb15e888508a9"
+    },
+    ".claude/skills/a": {
+      "owner": "git.test/t/skills",
+      "hash": null
+    },
+    ".claude/skills/a/SKILL.md": {
+      "owner": "git.test/t/skills",
+      "hash": "sha256:06df7db731b3a2b533837f4e9e535549d7c4d5b1863d6864cae22683559e44ae"
+    },
+    ".claude/skills/c": {
+      "owner": "git.test/t/skills",
+      "hash": null
+    },
+    ".claude/skills/c/SKILL.md": {
+      "owner": "git.test/t/skills",
+      "hash": "sha256:5f390d5b62e812f9584b16b9f6c8a15034d3e6e6c54c2a95ab87afbfdda2c169"
+    },
+    ".claude/skills/leaf": {
+      "owner": "git.test/t/leaf",
+      "hash": null
+    },
+    ".claude/skills/leaf/SKILL.md": {
+      "owner": "git.test/t/leaf",
+      "hash": "sha256:0b5fa55dd6144bb1041f02a3c587d8c1e995ca9ff330e79e560f60c4deea3219"
+    },
+    ".claude/skills/review": {
+      "owner": "git.test/t/base",
+      "hash": null
+    },
+    ".claude/skills/review/SKILL.md": {
+      "owner": "git.test/t/base",
+      "hash": "sha256:3b095a4dd603e09bbeff692720482769d53bba4cabcecc781f3666d38b5f1d97"
+    },
+    ".claude/skills/single": {
+      "owner": "git.test/t/single",
+      "hash": null
+    },
+    ".claude/skills/single/SKILL.md": {
+      "owner": "git.test/t/single",
+      "hash": "sha256:2a60e401d8c1fff756df67cbf02f6a729bc2987be13a9c6719b0b8e5103e601e"
+    }
+  }
+}

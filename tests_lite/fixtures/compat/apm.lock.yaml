@@ -1,0 +1,111 @@
+lockfile_version: '1'
+apm_version: 0.1.0
+dependencies:
+- repo_url: _local/own
+  name: own
+  version: 0.0.1
+  package_type: apm_package
+  deployed_files:
+  - .agents/rules/own.md
+  - .claude/rules/own.md
+  deployed_file_hashes:
+    .agents/rules/own.md: sha256:c24bf8e611b29b5cc362aae5a5fd2de630051c9c7aef5acd2d00142016dc6d14
+    .claude/rules/own.md: sha256:cf93afcd5ba9888ac6458f58bfdcf33fcdced479712ab858badf13564e79dcff
+  source: local
+  local_path: ./packages/own
+- repo_url: t/base
+  name: base
+  host: git.test
+  resolved_commit: 90e479bf89aa89786f266fbefcca6c98595408ee
+  resolved_ref: v1.0.0
+  version: 1.0.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/rules/style.md
+  - .agents/skills/review
+  - .agents/skills/review/SKILL.md
+  - .claude/rules/style.md
+  - .claude/skills/review
+  - .claude/skills/review/SKILL.md
+  deployed_file_hashes:
+    .agents/rules/style.md: sha256:3c0ed9b8f3692abce8dd2dd9fe304b7396f498ec90b15863f3cc11cd10033204
+    .agents/skills/review/SKILL.md: sha256:3b095a4dd603e09bbeff692720482769d53bba4cabcecc781f3666d38b5f1d97
+    .claude/rules/style.md: sha256:fe32ae0b003e1e7c0f3e4e5cf0053cd530987532ffbf988af51cb15e888508a9
+    .claude/skills/review/SKILL.md: sha256:3b095a4dd603e09bbeff692720482769d53bba4cabcecc781f3666d38b5f1d97
+  content_hash: sha256:d2dc1108684e088b29661acdc6092504fe1c8e6176063e62e682d7a3a8d59f5e
+- repo_url: t/hooks
+  name: hooks
+  host: git.test
+  port: 7999
+  resolved_commit: 6f2f7cbd1b4b7a699c859c314caed906bdf485a0
+  resolved_ref: main
+  version: 2.0.0
+  package_type: apm_package
+  deployed_files:
+  - .agents/hooks/hooks/check.sh
+  - .claude/hooks/hooks/check.sh
+  deployed_file_hashes:
+    .agents/hooks/hooks/check.sh: sha256:306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb
+    .claude/hooks/hooks/check.sh: sha256:306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb
+  content_hash: sha256:824f0fe811bbefa7c8a6ba8f68659f9268254ec22876af2ba1f87825f1f2bf0e
+- repo_url: t/single
+  name: single
+  host: git.test
+  resolved_commit: 00aebf502c3464700cf66948abfac624241e6fc7
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/single
+  - .agents/skills/single/SKILL.md
+  - .claude/skills/single
+  - .claude/skills/single/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/single/SKILL.md: sha256:2a60e401d8c1fff756df67cbf02f6a729bc2987be13a9c6719b0b8e5103e601e
+    .claude/skills/single/SKILL.md: sha256:2a60e401d8c1fff756df67cbf02f6a729bc2987be13a9c6719b0b8e5103e601e
+  content_hash: sha256:bdd46da14935a44d4fba6197372cf35f24d5965b0fdd6b1d3d552a12ec246a0a
+- repo_url: t/skills
+  name: skills
+  host: git.test
+  resolved_commit: 017888f76e2edce9e5f5c34c0be77e8a25721c78
+  resolved_ref: v2
+  package_type: skill_bundle
+  deployed_files:
+  - .agents/skills/a
+  - .agents/skills/a/SKILL.md
+  - .agents/skills/c
+  - .agents/skills/c/SKILL.md
+  - .claude/skills/a
+  - .claude/skills/a/SKILL.md
+  - .claude/skills/c
+  - .claude/skills/c/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/a/SKILL.md: sha256:06df7db731b3a2b533837f4e9e535549d7c4d5b1863d6864cae22683559e44ae
+    .agents/skills/c/SKILL.md: sha256:5f390d5b62e812f9584b16b9f6c8a15034d3e6e6c54c2a95ab87afbfdda2c169
+    .claude/skills/a/SKILL.md: sha256:06df7db731b3a2b533837f4e9e535549d7c4d5b1863d6864cae22683559e44ae
+    .claude/skills/c/SKILL.md: sha256:5f390d5b62e812f9584b16b9f6c8a15034d3e6e6c54c2a95ab87afbfdda2c169
+  content_hash: sha256:9bcfdf0341c6ed6b19df35a569e93e93ab95332db15ad85eecf9c1fd680ef2dd
+  skill_subset:
+  - a
+  - c
+- repo_url: t/leaf
+  name: leaf
+  host: git.test
+  resolved_commit: 38440f40e29c4f409ab887ab3d0fa0eec256bb54
+  resolved_ref: v1
+  depth: 2
+  resolved_by: t/base
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/leaf
+  - .agents/skills/leaf/SKILL.md
+  - .claude/skills/leaf
+  - .claude/skills/leaf/SKILL.md
+  deployed_file_hashes:
+    .agents/skills/leaf/SKILL.md: sha256:0b5fa55dd6144bb1041f02a3c587d8c1e995ca9ff330e79e560f60c4deea3219
+    .claude/skills/leaf/SKILL.md: sha256:0b5fa55dd6144bb1041f02a3c587d8c1e995ca9ff330e79e560f60c4deea3219
+  content_hash: sha256:793ff5fde5d8ee97430d710dc04d47e0e91f5032e3513fa7e147892cbf2ea008
+local_deployed_files:
+- .agents/rules/project.md
+- .claude/rules/project.md
+local_deployed_file_hashes:
+  .agents/rules/project.md: sha256:3c0ed9b8f3692abce8dd2dd9fe304b7396f498ec90b15863f3cc11cd10033204
+  .claude/rules/project.md: sha256:fe32ae0b003e1e7c0f3e4e5cf0053cd530987532ffbf988af51cb15e888508a9

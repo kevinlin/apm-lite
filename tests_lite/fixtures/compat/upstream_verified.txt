@@ -1,0 +1,9 @@
+APMPackage.from_apm_yml: 5 apm dependencies
+ok: 'https://git.test/t/base.git#v1.0.0' -> {'ref': 'v1.0.0', 'alias': None, 'key': 'git.test/t/base', 'install_path': 'apm_modules/t/base'}
+ok: 'ssh://git@git.test:7999/t/hooks.git#main' -> {'ref': 'main', 'alias': None, 'key': 'git.test/t/hooks', 'install_path': 'apm_modules/t/hooks'}
+ok: 'git@git.test:t/single.git' -> {'ref': None, 'alias': None, 'key': 'git.test/t/single', 'install_path': 'apm_modules/t/single'}
+ok: {'git': 'https://git.test/t/skills.git', 'ref': 'v2', 'skills': ['a', 'c']} -> {'ref': 'v2', 'alias': None, 'key': 'git.test/t/skills', 'install_path': 'apm_modules/t/skills'}
+ok: './packages/own' -> {'ref': None, 'alias': None, 'key': './packages/own', 'install_path': None}
+LockFile.read + ledger rebuild: 28 deployed records
+
+upstream APM accepts the apm-lite fixtures with the same meaning

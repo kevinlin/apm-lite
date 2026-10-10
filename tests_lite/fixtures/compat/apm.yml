@@ -1,0 +1,16 @@
+name: compat
+version: "0.1.0"
+targets:
+  - claude
+  - antigravity
+dependencies:
+  apm:
+    - https://git.test/t/base.git#v1.0.0
+    - ssh://git@git.test:7999/t/hooks.git#main
+    - git@git.test:t/single.git
+    - git: https://git.test/t/skills.git
+      ref: v2
+      skills:
+        - a
+        - c
+    - ./packages/own
