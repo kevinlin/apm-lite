@@ -22,6 +22,7 @@
 - Don't modify anything under `src/apm_cli/` or `tests/` before Task 13.
 - Output through `click.echo`; errors as `error: …` / `hint: …` on stderr, exit 1.
 - Code style: ruff (line length 100), type hints, small focused modules.
+- The GitHub repo is public. Don't commit internal host names, mirror URLs or credentials. `uv.lock` is untracked because it records index URLs, and each developer resolves through their own configured index (`UV_DEFAULT_INDEX` or `~/.config/uv/uv.toml`, e.g. a JFrog Artifactory PyPI remote).
 
 ## Review Focus
 
@@ -47,6 +48,7 @@ Routing rule:
 
 | Task | Identity | Depends | Acceptance (must pass) |
 |---|---|---|---|
+| 0 Antigravity format spike | driver | – (needs `agy` login) | spike report recorded in design §11 |
 | 1 Scaffold, model, fixtures | fast_worker | – | `uv run pytest tests_lite/test_fixtures.py -q` |
 | 2 `fs.py` | deep_reasoner | 1 | `uv run pytest tests_lite/test_fs.py -q` |
 | 3 `refs.py`, `manifest.py` | fast_worker | 1 | `uv run pytest tests_lite/test_refs.py tests_lite/test_manifest.py -q` |
@@ -63,7 +65,7 @@ Routing rule:
 | 14 Docs | fast_worker | 13 | files exist per N9; `grep -rn "microsoft.github.io\|aka.ms\|brew install" README.md docs/*.md` empty |
 | 15 Final acceptance | driver | 14 | full suite, ruff, line count, whole-branch review |
 
-Parallel waves: **A** = 1. **B** = 2, 3, 4, 5, 6, 7 in parallel (disjoint files). **C** = 8. **D** = 9. **E** = 10. **F** = 11 → 12 → 13 → 14 → 15.
+Parallel waves: **A** = 0 and 1 (0 runs whenever `agy` is logged in; it must finish before Tasks 6 and 7 are accepted). **B** = 2, 3, 4, 5, 6, 7 in parallel (disjoint files). **C** = 8. **D** = 9. **E** = 10. **F** = 11 → 12 → 13 → 14 → 15.
 
 Delegation rules for every job:
 - Use the agent-handoff Delegation Packet. Constraints for every task: only touch the task's listed files; don't commit; run only your task's test files (other Wave B modules may be mid-change).
@@ -101,12 +103,32 @@ tests_lite/          (renamed to tests/ in Task 13)
 
 ---
 
+### Task 0: Antigravity format spike
+
+**Identity:** driver (inline) · **Depends:** `agy` logged in (run `agy` once interactively) · **Spec:** design §6.2, §6.4, §11
+
+This is throwaway work in the scratchpad, not product code. It answers two questions before Tasks 6 and 7 are accepted:
+- Does `agy` 1.3.3 load `.agents/rules/*.md` with `trigger: always_on`, and with `trigger: glob` plus `globs` as one comma-separated string?
+- Does it run `.agents/hooks.json` commands written as relative paths, from the project root?
+
+- [ ] **Step 1:** Build the spike project (already scripted in the session scratchpad as `agy-spike/`):
+  - `.agents/rules/always.md` (`trigger: always_on`, secret word `BANANA-ALWAYS`);
+  - `.agents/rules/py.md` (`trigger: glob`, `globs: "**/*.py,**/*.pyi"`, codeword `PYTHON-GLOB`);
+  - `.agents/skills/spike-skill/SKILL.md` (answer `CHERRY-SKILL`);
+  - `.agents/hooks.json` with an `apm` container: `PreInvocation` flat, `PreToolUse` nested, pointing at relative `.agents/hooks/spike/*.sh` scripts that append `pwd` to `hook-log.txt`;
+  - `src/app.py`.
+- [ ] **Step 2:** In that dir, run: `agy -p "1) secret word per your rules? 2) list loaded workspace rules (with trigger) and skills 3) read src/app.py, then give the Python codeword 4) spike skill answer?" --dangerously-skip-permissions --print-timeout 300s`.
+- [ ] **Step 3:** Record the pass or fail of each check, plus `hook-log.txt`, in design §11. If a check fails, change design §6.2 or §6.4 (and the Task 6/7 tests) before those tasks are accepted. If `agy` ignores `trigger: always_on` but loads frontmatter-less rules, revert to upstream's form, which has no frontmatter. If it rejects the string `globs`, use upstream's YAML list.
+
+---
+
 ### Task 1: Scaffold, model, test fixtures
 
 **Identity:** fast_worker · **Depends:** – · **Spec:** design §2, §9 (fake server)
 
 **Files:**
 - Modify: `pyproject.toml`: in `[tool.setuptools.packages.find]`, change `include` to `["apm_cli*", "apm_lite*"]`. Change nothing else.
+- Modify: `.gitignore` (add `uv.lock`); untrack `uv.lock` (Step 2).
 - Create: `src/apm_lite/__init__.py`, `src/apm_lite/errors.py`, `src/apm_lite/model.py`, `src/apm_lite/deploy/__init__.py`
 - Create: `tests_lite/__init__.py` (empty), `tests_lite/conftest.py`, `tests_lite/test_fixtures.py`
 
@@ -229,7 +251,7 @@ def test_model_owner_and_marker(tmp_path):
         "git.test/team/pkg", "team/pkg", "pkg", "team/pkg")
 ```
 
-- [ ] **Step 2:** The existing `uv.lock` pins every package to `packagefeedproxy.microsoft.io`, which isn't reachable outside Microsoft. Regenerate it against the default index (or your company's PyPI mirror): `uv lock --default-index https://pypi.org/simple`. Then run `uv sync --extra dev` and `uv run pytest tests_lite/test_fixtures.py -q`. Expected: FAIL (fixture or module missing). Commit `uv.lock` with this task.
+- [ ] **Step 2:** Stop tracking `uv.lock`. Upstream's copy pins every package to `packagefeedproxy.microsoft.io`, and any regenerated copy would record the developer's own index URL in a public repo. Run `git rm --cached uv.lock`, add a `uv.lock` line to `.gitignore`, then `rm uv.lock`. Run `uv sync --extra dev`, which resolves through the configured index (pypi.org by default). Then run `uv run pytest tests_lite/test_fixtures.py -q`. Expected: FAIL (fixture or module missing).
 - [ ] **Step 3:** Implement the files above to the contract.
 - [ ] **Step 4:** `uv run pytest tests_lite/test_fixtures.py -q`. Expected: 2 passed.
 - [ ] **Step 5:** Driver commits: `feat(lite): scaffold apm_lite package, model and git test server`.
@@ -1520,7 +1542,7 @@ def test_update_and_tree(git_server, project, monkeypatch):
   - keep `[tool.ruff]` with line-length 100 and target py310;
   - `[tool.pytest.ini_options] testpaths = ["tests"]`.
 - `.gitignore`: remove the `AGENTS.md`, `PRD*.md`, `docs/superpowers/` and `.github/extensions/` lines, plus the other upstream-only entries. Keep the Python, venv, `.handoff/` and `apm_modules/` entries.
-- Run `uv lock` to regenerate `uv.lock`.
+- Don't create or commit a `uv.lock` (Task 1 untracked it).
 - `git add AGENTS.md`.
 
 - [ ] **Step 1:** Run `uv sync --extra dev && uv run pytest -q`. Expected: every test from `tests_lite` passes under `tests/`.
@@ -1540,7 +1562,7 @@ Content checklist:
 - **README:** one-paragraph purpose; install (`git clone <internal mirror>`, `uv tool install .`); note that the `apm` command clashes with upstream APM on PATH; quickstart (`apm init`, `apm install https://…`, commit `apm.yml` + `apm.lock.yaml`); command table; link to the two docs.
 - **reference.md:** the `apm.yml` fields and rejected forms (R1–R6); the dependency-forms table from design §3.2; the lockfile example from design §5.1; the target paths table from design §6.1; command flags; `--frozen` drift cases (R19); cleanup and edit rules (R25, R29).
 - **authoring-packages.md:** the three package shapes; rule frontmatter (`applyTo`) and both target outputs; skill layout and naming; hooks (source grammar, `hooks-claude.json` / `hooks-antigravity.json`, scripts inside `.apm/hooks/`, the event support table); releasing by tag; a "test your package locally" section using a root local path.
-- **CONTRIBUTING:** `uv sync --extra dev`, `uv run pytest`, `uv run ruff check src tests`; the module map from design §2.
+- **CONTRIBUTING:** `uv sync --extra dev`, `uv run pytest`, `uv run ruff check src tests`; the module map from design §2. Explain that `uv.lock` is untracked, and show how to point uv at an internal PyPI mirror. Use a placeholder host such as `https://artifactory.example.com/api/pypi/pypi-remote/simple`, never a real one.
 - **PRINCIPLES:** three principles (no invented frontmatter, portability, reliability over magic), two to three lines each.
 - **CHANGELOG:** `## 0.1.0 (2026-10-10)`, first release of apm-lite, forked from APM v0.33.0.
 
@@ -1559,5 +1581,5 @@ Content checklist:
 - [ ] Size target: `find src/apm_lite -name '*.py' | xargs grep -cv '^\s*$' | awk -F: '{s+=$2} END {print s}'` reports about 3000. Report the number; it isn't a gate.
 - [ ] Network check: `grep -rn "requests\|urllib\|http.client\|socket" src/apm_lite` is empty (N1).
 - [ ] Whole-branch review against the requirements, R1–R38 and N1–N9. Record any gaps as follow-up tasks.
-- [ ] Manual, for Kevin: with `agy` installed, run `apm install` in a sample project with `targets: [antigravity]`. Confirm Antigravity loads the rules (`trigger: glob` / `always_on`), the skills, and the `apm` hooks from `.agents/hooks.json`, with hooks run from the project root (design §11).
+- [ ] Antigravity end-to-end (driver, with `agy` logged in): run the built `apm install` in a sample project with `targets: [antigravity]`. Repeat Task 0's `agy -p` probe against the real output, and confirm the rules, skill and hooks load and that the hook log shows the project root as the working directory.
 - [ ] Write the agent-handoff session receipt.

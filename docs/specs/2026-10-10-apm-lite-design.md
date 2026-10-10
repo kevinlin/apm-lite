@@ -455,7 +455,7 @@ PRINCIPLES.md            trimmed: no invented frontmatter, portability, reliabil
 CHANGELOG.md             restarted at 0.1.0
 LICENSE                  kept (MIT requires the Microsoft copyright line)
 pyproject.toml           dist apm-lite, entry apm = "apm_lite.cli:main", deps per N7
-uv.lock                  regenerated
+uv.lock                  not tracked (records index URLs; the repo is public)
 .gitignore, .editorconfig, .gitattributes, .pre-commit-config.yaml (ruff)
 ```
 
@@ -481,8 +481,7 @@ Order:
 - **Sequential fetch:** fine for tens of packages. Parallelise later if needed.
 - **No global git cache:** each project clones its own packages. A warm `apm_modules/` at the locked commit skips fetching.
 - **In-memory undo log:** errors and Ctrl-C roll back fully; a hard kill during deployment can leave partial changes (§7.1).
-- **Antigravity rule frontmatter** (`globs` as a string, explicit `always_on`) follows the docs, not upstream. Verify against a real `agy` run early in implementation.
-- **Antigravity hook commands are relative** (`.agents/hooks/<pkg>/x.sh`). Upstream does the same, which assumes `agy` runs hooks from the project root. Verify with `agy`.
+- **Antigravity rule frontmatter** (`globs` as a string, explicit `always_on`) follows the docs, not upstream. **Antigravity hook commands are relative** (`.agents/hooks/<pkg>/x.sh`), as upstream does, which assumes `agy` runs hooks from the project root. Plan Task 0 checks both with `agy` 1.3.3 before the rule and hook tasks are accepted; record its result here.
 - **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/authoring-packages.md`.
 - **Claude hook events aren't validated** beyond skipping Antigravity-only events. Claude's event list changes often, and an unknown event is ignored by Claude rather than breaking it.
 
