@@ -280,7 +280,7 @@ Target folders are created when needed, through `fs.check_destination`.
 
 Source selection, per package and target:
 1. Use `.apm/hooks/hooks-<target>.json` if present.
-2. Otherwise use every other `.apm/hooks/*.json`, excluding all `hooks-<t>.json`.
+2. Otherwise use every other `.apm/hooks/*.json`, except `hooks-<t>.json` for any upstream target name (`claude`, `antigravity`, `copilot`, `vscode`, `cursor`, `codex`, `gemini`, `windsurf`, `kiro`), which upstream routes to that harness only, and Node config files (`package.json`, `package-lock.json`), which are copied with the bundle.
 
 Source grammar:
 - The file is either `{"hooks": {Event: [entries]}}` or a naked `{Event: [entries]}`.
