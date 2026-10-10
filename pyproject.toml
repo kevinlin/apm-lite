@@ -121,6 +121,7 @@ known-first-party = ["apm_cli"]
 [tool.ruff.lint.per-file-ignores]
 # Subprocess calls are intentional in a CLI tool
 "src/apm_cli/**" = ["S603", "S607"]
+"src/apm_lite/**" = ["S603", "S607"]
 # Tests: assert is expected; security rules produce false positives on fixtures;
 # F821 undefined-name from TYPE_CHECKING + PEP 563 deferred annotations
 "tests/**" = ["S101", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
