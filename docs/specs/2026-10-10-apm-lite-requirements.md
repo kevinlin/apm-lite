@@ -1,7 +1,7 @@
 # apm-lite: requirements
 
 - Date: 2026-10-10
-- Status: revised after spec review round 1
+- Status: revised after spec review rounds 1–2 (consensus)
 - Companion: [design spec](2026-10-10-apm-lite-design.md)
 
 ## Purpose
@@ -17,7 +17,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 
 ## Success criteria
 
-- Two developers with the same `apm.yml`, `apm.lock.yaml` and project `.apm/` content who run `apm install` get byte-identical managed files under `.claude/` and `.agents/`. Files and hook entries the user added are left as they were.
+- Two developers with the same `apm.yml`, `apm.lock.yaml`, project `.apm/` content and local package content who run `apm install` get byte-identical managed files under `.claude/` and `.agents/`. This excludes files kept as user edits (R29). Files and hook entries the user added are left as they were.
 - apm-lite opens no network connections itself. All network access goes through `git` subprocesses for URLs taken from `apm.yml` files, after git's own config (for example `insteadOf`) is applied.
 - An `apm.yml` and `apm.lock.yaml` written by apm-lite match golden fixtures that upstream APM 0.33.0's reader accepts (§ design 9).
 - Source size target: about 3k non-blank lines in `src/apm_lite/` (`grep -cv '^\s*$'`). A target, not an acceptance gate.
@@ -59,10 +59,10 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 - **R3.** Any other top-level key, and any `dependencies` key other than `apm`, is ignored with one warning per key and kept unchanged when apm-lite saves the file. This applies to the root manifest and to every dependency's manifest.
 - **R4.** A dependency entry is one of:
   - an `https://`, `ssh://` or `git@host:path` URL, optionally ending in `#<ref>`;
-  - a local path starting with `./`, `../`, `/` or `~/` (root `apm.yml` only);
+  - a local path starting with `./`, `../`, `/` or `~/` (root `apm.yml` only; two local entries may not share a final folder name);
   - an object `{git: <url>, ref?: <ref>, skills?: [names]}`;
   - an object `{path: <local path>, skills?: [names]}` (root `apm.yml` only).
-- **R5.** These are rejected with a message that names the supported forms: `owner/repo` shorthand, scheme-free `host/path`, `http://`, an HTTPS host without a dot, a repo path with fewer than two segments, `git:` with `path:`, and the object keys `alias`, `targets`, `type`, `allow_insecure`, `version`.
+- **R5.** These are rejected with a message that names the supported forms: `owner/repo` shorthand, scheme-free `host/path`, `http://`, an HTTPS host that upstream's host check rejects (for example a single label or `git_corp.example`), a repo path with fewer than two segments, `@` in the repo path or ref (upstream reads it as an alias), `git:` with `path:`, and the object keys `alias`, `targets`, `type`, `allow_insecure`, `version`.
 - **R6.** A ref is a branch, a tag, or a full 40-hex commit SHA. No ref means the remote's default branch. A ref that upstream would read as a semver range or bare version (for example `1.2.3`, `^1.2`, `1.x`) is rejected, with a hint to use the tag name (for example `v1.2.3`).
 
 ### Packages
@@ -82,7 +82,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 
 - **R13.** Remote dependencies resolve transitively, breadth first. Each package is identified by host plus repo path. A remote dependency declared with https and with ssh is the same package.
 - **R14.** When the same package is requested at different refs:
-  - if two of the requests are immutable (tag or SHA) and resolve to different commits, the install fails and names both request chains;
+  - if two of the requests are immutable (tag or SHA) and resolve to different commits, the install fails and names both request chains (a request whose ref matches the lockfile resolves to the locked commit);
   - otherwise the shallowest request wins (first declared on a tie), with a warning naming both refs.
 - **R15.** Cycles are skipped. Depth beyond 50 is an error.
 - **R16.** On `install`, a dependency whose lockfile entry has the same declared ref and a full commit is installed at the locked commit. Otherwise the ref is resolved against the remote.
@@ -98,19 +98,20 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
   - a SHA request differs from the locked commit;
   - the lockfile has a remote entry that the dependency graph no longer reaches;
   - a skill subset differs from the locked `skill_subset`.
-  Otherwise it installs exactly the locked commits without resolving refs.
+  Otherwise it installs exactly the locked commits. It queries a remote only to check that a duplicate tag request with a different ref points at the locked commit. Local dependencies are exempt from commit checks.
 
 ### Deployment
 
 - **R20.** Rules deploy to `.claude/rules/<name>.md` and/or `.agents/rules/<name>.md`, with `applyTo` translated to each target's native frontmatter. A rule without `applyTo` is always active on both targets.
 - **R21.** Skills deploy to `.claude/skills/<name>/` and/or `.agents/skills/<name>/`. `.git`, `.apm/` and symlinks are not copied. A single-skill package's name is normalised to lowercase hyphen-case, as upstream does.
-- **R22.** Hooks merge into `.claude/settings.json` (key `hooks`) and/or `.agents/hooks.json` (entry `apm`), leaving everything else in those files untouched. Scripts the hook commands reference are copied into the target folder with their file mode, and the commands are rewritten to the copies.
+- **R22.** Hooks merge into `.claude/settings.json` (key `hooks`) and/or `.agents/hooks.json` (entry `apm`), leaving everything else in those files untouched. A package's `.apm/hooks/` folder is copied into the target folder with file modes kept, and commands are rewritten to the copies. A command that references a script outside `.apm/hooks/` is an error.
 - **R23.** A package may ship `hooks-claude.json` and/or `hooks-antigravity.json`. If one exists, it replaces the package's other hook files for that target.
 - **R24.** A hook event that a target doesn't support is skipped for that target with a warning: for Antigravity, anything other than `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`; for Claude, `PreInvocation` and `PostInvocation`.
 - **R25.** Before writing a path, apm-lite checks it:
   - two sources planning the same path (compared case-insensitively) is an error naming both;
   - an existing untracked file with different content is an error telling the user to move it; identical content is adopted;
-  - an existing tracked file whose content no longer matches its recorded hash was edited by the user: it is kept, with a warning, and not overwritten.
+  - an existing tracked file whose content no longer matches its recorded hash was edited by the user: it is kept, with a warning, and not overwritten;
+  - a file whose bytes and executable bit already equal the planned output counts as managed output, whoever wrote it.
 - **R26.** Malformed JSON in `.claude/settings.json`, `.agents/hooks.json` or an ownership sidecar is an error before any file is written. So is an `apm` entry in `.agents/hooks.json` that apm-lite doesn't own.
 - **R27.** `apm_modules/` is added to `.gitignore` if missing.
 
@@ -128,8 +129,8 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 - **R34.** `apm uninstall <dep>` removes the entry from `apm.yml` and reconciles. `<dep>` matches the entry as written, its identity (`host/path`), or a local path.
 - **R35.** `apm update [<dep>]` ignores lockfile pins (all, or only that dependency's) and reconciles.
 - **R36.** `apm deps list` prints each locked package with source, ref and short commit. `apm deps tree` prints the dependency tree.
-- **R37.** A failed command leaves `apm.yml` and `apm.lock.yaml` byte-identical to before. Deployed files are written atomically, so a crash never leaves a truncated file.
-- **R38.** Running `apm install` twice in a row with no changes performs no fetches and changes no file's bytes.
+- **R37.** A command that fails with an error, or is interrupted with Ctrl-C, restores every file it changed in the project tree (deployed files, hook configs, sidecars, `.gitignore`, `apm.yml`, `apm.lock.yaml`) to its previous bytes and mode. `apm_modules/` is a cache and isn't restored. A hard kill (SIGKILL, power loss) during deployment can leave partial changes.
+- **R38.** Running `apm install` twice in a row with no changes performs no fetches and writes no files.
 
 ## Non-functional requirements
 

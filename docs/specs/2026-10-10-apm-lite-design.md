@@ -1,7 +1,7 @@
 # apm-lite: design
 
 - Date: 2026-10-10
-- Status: revised after spec review round 1 (see §13)
+- Status: revised after spec review rounds 1–2, consensus reached (see §13)
 - Implements: [requirements](2026-10-10-apm-lite-requirements.md) (R1–R38, N1–N9)
 - Upstream reference: APM v0.33.0, commit `280b8a7b` on this repo's `main`. File references like `deps/lockfile.py:351` are relative to upstream `src/apm_cli/` at that commit.
 
@@ -36,7 +36,7 @@ cli ──> manifest.load(apm.yml) ──> resolver.resolve(manifest, old_lock, 
 |---|---|---|
 | `cli.py` | Click commands and flags. Catches `ApmError`, prints `error:` / `hint:`, exits 1 | everything below |
 | `errors.py` | `ApmError(message, hint=None)` | — |
-| `fs.py` | `check_destination(path)` (containment and symlink check, §7.3), `atomic_write(path, bytes, mode)`, `safe_name(s)` | — |
+| `fs.py` | `check_destination(path)` (containment and symlink check, §7.3), `atomic_write(path, bytes, mode)`, `safe_name(s)`, `UndoLog` (§7.1) | — |
 | `manifest.py` | Load and validate `apm.yml`; parse dependency entries into `DepSpec`; add and remove entries with ruamel round-trip (comments kept) | ruamel.yaml |
 | `refs.py` | Ref classification ported from upstream: SHA, semver-looking (rejected), literal | — |
 | `git.py` | `ls_remote(url)` → refs map; `fetch(url, commit, dest)`; runs `git` with `GIT_TERMINAL_PROMPT=0`, surfaces stderr | subprocess |
@@ -82,7 +82,8 @@ Core types (dataclasses):
 - Object form: `{git: <url>, ref: <ref>, skills: [...]}` or `{path: <local>, skills: [...]}`. `ref:` overrides a `#ref` in `git:`.
 - `skills:` must be a non-empty list of strings. It's deduped and sorted.
 - Validation, matching upstream where upstream is stricter:
-  - HTTPS host must contain a dot (`utils/github_host.py:287`, `:1009`).
+  - HTTPS host must pass upstream's `is_valid_fqdn`, ported verbatim (`utils/github_host.py:287`, `:1009`). That rejects single labels, `git..corp` and `git_corp.example`.
+  - `@` anywhere in `repo_path` or the ref is rejected. Upstream reads `#release@candidate` as ref `release` plus alias `candidate` (`models/dependency/reference.py:608`).
   - `repo_path` must have at least two segments (`models/dependency/reference.py:1606`).
   - Each `repo_path` segment matches `[A-Za-z0-9._-]+` and isn't `.` or `..`.
   - SCP form can't carry a port, so a numeric first path segment is rejected.
@@ -156,18 +157,18 @@ while queue:
   - `install`: if the lockfile has this key with a 40-hex `resolved_commit` and `resolved_ref == spec.ref`, use the locked commit. Otherwise resolve with `ls_remote`.
   - `update` (all, or the named key): always resolve with `ls_remote`. Other keys behave as `install`.
   - `frozen`: see below.
-- **Immutable conflicts (R14):** each request with a tag or SHA ref is resolved to a commit (one `ls_remote` per URL, reused). If two immutable requests for the same key resolve to different commits, raise `ApmError` naming both request chains, matching upstream (`deps/immutable_requirements.py:85`).
+- **Immutable conflicts (R14):** each request with a tag or SHA ref is resolved to a commit. A SHA is its own commit. A tag whose ref equals the locked `resolved_ref` (and the mode isn't `update` for that key) takes the locked commit, so a moved tag doesn't cause a false conflict; upstream does the same (`deps/immutable_requirements.py:175`). Other tags use `ls_remote` (one call per URL, reused). If two immutable requests for the same key resolve to different commits, raise `ApmError` naming both request chains (`deps/immutable_requirements.py:85`).
 - **Frozen (R19):**
   - Before the walk: the lockfile must exist.
-  - For every request (winner or duplicate): the key must be in the lockfile with a 40-hex commit. A SHA ref must equal the locked commit. The winning request's ref must equal `resolved_ref`.
-  - The winner installs at the locked commit, with no `ls_remote` for it. Immutable-conflict checks still run and may call `ls_remote` for duplicate tag requests.
+  - For every remote request (winner or duplicate): the key must be in the lockfile with a 40-hex commit. A SHA ref must equal the locked commit. The winning request's ref must equal `resolved_ref`. Local requests are exempt.
+  - The winner installs at the locked commit, with no `ls_remote` for it. Immutable-conflict checks still run; the only remote query frozen mode makes is `ls_remote` for a duplicate tag request whose ref differs from `resolved_ref`.
   - After the walk: any remote lockfile entry not reached, or a merged skill subset that differs from the locked `skill_subset`, is an error.
 - **Subsets:** `skills_selected` is the union of every request's `skills:`. One request without `skills:` means all skills. The lockfile `skill_subset` records the union, or nothing when all are selected.
 - **Fetching** is sequential. (`ponytail:` parallel fetch if large trees make installs slow.)
 
 ### 4.4 Local dependencies (root only)
 
-- Relative paths are resolved against the project root. Two root entries resolving to the same real directory are an `ApmError`.
+- Relative paths are resolved against the project root. Two root entries resolving to the same real directory, or sharing a final folder name (both would be `_local/<name>`), are an `ApmError`.
 - The key and lockfile `local_path` are the path as written in `apm.yml`.
 - Local packages are read in place, never copied into `apm_modules/`, get no `content_hash`, and aren't pin-checked. This matches upstream.
 - A local package may declare remote dependencies; those are walked normally. It may not declare local ones (R10).
@@ -291,14 +292,11 @@ Scripts:
 - Script tokens in a command:
   - `./<path>` resolves against the hook file's folder, then against the package root.
   - `${CLAUDE_PLUGIN_ROOT}/<path>` or `${PLUGIN_ROOT}/<path>` resolves against the package root only.
-- A resolved script must be a regular file inside the package root (no symlink); otherwise `ApmError`.
-- Copies, with file mode kept:
-  - the `.apm/hooks/` folder, minus the JSON files used as hook sources, goes to `<target>/hooks/<pkg>/`, keeping paths relative to `.apm/hooks/`;
-  - each referenced script outside `.apm/hooks/` goes to `<target>/hooks/<pkg>/`, keeping its path relative to the package root.
-  Both kinds of copy go through the normal collision check (§7.2).
+- A resolved script must be a regular file inside `.apm/hooks/` (no symlink). Anything else is an `ApmError` with the hint to move the script, and anything it needs, into `.apm/hooks/`. This keeps each hook bundle self-contained, including any `package.json` that sets the module type for `.js` scripts.
+- Copy: the whole `.apm/hooks/` folder, minus the JSON files used as hook sources, goes to `<target>/hooks/<pkg>/` with paths relative to `.apm/hooks/` and file modes kept. Each copied file goes through the normal checks (§7.2).
 - `<pkg>` is the last segment of `repo_path`, the local folder name, or the root project's `name`, and must pass `fs.safe_name`.
 - Command rewrite (ported from `integration/hook_integrator.py:576-599`):
-  - Claude: `${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<rel>`, wrapped in double quotes unless the original token was already quoted. A path with `$` or a backtick is an `ApmError`.
+  - Claude: `${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<rel>`, always in double quotes. An unquoted or double-quoted token gets double quotes. A single-quoted token has its single quotes replaced by double quotes, because the shell doesn't expand variables inside single quotes. A path with `$`, a backtick or `"` is an `ApmError`.
   - Antigravity: `.agents/hooks/<pkg>/<rel>`.
 
 Native entry shapes:
@@ -313,7 +311,7 @@ Ownership and merge. This runs in the plan phase, so every failure happens befor
    - Claude: for each sidecar entry (with `_apm_source` removed), remove **one** equal entry from `hooks.<Event>` (a multiset match, as in `integration/hook_ownership.py:18`). Sidecar entries with no match were edited or removed by the user and are left alone. Drop events left empty.
    - Antigravity: if the native file has an `apm` key and there's no sidecar, raise `ApmError` (a user container named `apm`). If the `apm` container differs from the container the sidecar describes, raise `ApmError` telling the user to move their edits under another hook name. Otherwise remove the `apm` key.
 3. For each configured target, add the planned entries in package order. Claude appends under `hooks.<Event>`. Antigravity builds `{"apm": {Event: [...]}}`.
-4. Native file: written (atomically, `json.dumps(indent=2)` plus a newline) only if its bytes change. Sidecar: written as `{Event: [entry + {"_apm_source": <owner>}]}`, or deleted when there are no entries. A target no longer in `targets:` ends with its entries stripped and its sidecar deleted (R28).
+4. Native file: written (atomically, `json.dumps(indent=2)` plus a newline) only if its bytes change. Sidecar: written as `{Event: [entry + {"_apm_source": <owner>}]}` only if its bytes change, or deleted when there are no entries. Both go through the undo log (§7.1), so an interrupted run never leaves a native file and its sidecar out of step. A target no longer in `targets:` ends with its entries stripped and its sidecar deleted (R28).
 
 Ownership markers match upstream: `repo_url` for remote packages, `_local/<name>` for local packages and the root project.
 
@@ -336,10 +334,11 @@ Ownership markers match upstream: `repo_url` for remote packages, `_local/<name>
    - delete skill directory roots once they're empty;
    - delete `apm_modules/<repo_path>` for remote keys no longer in the tree, then prune empty parent folders and `apm_modules/.tmp/`.
 6. **Gitignore:** append upstream's block `\n# APM dependencies\napm_modules/\n` to `.gitignore` if no line equals `apm_modules/` (R27).
-7. **Commit metadata** (R37):
-   - Write the new lockfile, and `apm.yml` if it was edited, to temp files beside them.
-   - `os.replace` `apm.yml` first, then the lockfile.
-   - A file whose bytes are unchanged isn't replaced (R38).
+7. **Commit metadata:** atomically replace `apm.yml` (if edited) and then the lockfile. A file whose bytes are unchanged isn't written (R38).
+
+**Undo log (R37).** Steps 4–7 run inside a `fs.UndoLog`. Before each write or delete in the project tree, the log records the path, its previous bytes (or "absent") and its mode. If any exception escapes steps 4–7, `KeyboardInterrupt` included, the log replays in reverse: previous bytes and modes are restored, and files that didn't exist are deleted. Then the original error is re-raised. If a restore itself fails, the error message lists the paths that weren't restored. `apm_modules/` changes from step 1 aren't logged, because it's a cache that the next run checks by commit and content hash (§4.1).
+
+`ponytail:` the undo log lives in memory, so a hard kill (SIGKILL, power loss) during steps 4–7 can leave partial changes. Deployed files normally live in the project's git, so `git status` shows them. Add an on-disk journal if hard kills turn out to matter.
 
 ### 7.2 Per-file classification
 
@@ -347,13 +346,14 @@ For each planned path `p` with content `c`:
 
 | Situation | Action |
 |---|---|
-| `p` exists with bytes equal to `c` | `noop`; record `file_hash(c)` |
+| `p` exists with bytes equal to `c` and the same executable bit | `noop`; record `file_hash(c)`. Bytes equal to the plan count as managed output, whoever wrote them (R25) |
+| `p` exists with bytes equal to `c`, executable bit differs | `chmod` to the planned mode |
 | `p` missing | `write` |
 | `p` tracked in `old_lock` (any owner) and current hash equals the recorded hash | `write` (also covers a path moving to a new owner) |
 | `p` tracked and current hash differs from the recorded hash | `keep-edited`: don't write, warn, record the old hash |
 | `p` exists, untracked, bytes differ | `ApmError`: the file isn't managed by apm; move or delete it |
 
-Checking "equal to `c`" first makes a crashed run recoverable. Files are written atomically, so after a crash every file is either old or new. On the next run, new files match the plan (`noop`) and old files match their recorded hashes (`write`).
+A failed run is undone by the undo log (§7.1), so the classification never has to guess at half-finished output from an earlier run.
 
 ### 7.3 Containment
 
@@ -363,7 +363,7 @@ Checking "equal to `c`" first makes a crashed run recoverable. Files are written
 - no existing component of `p` below the project root is a symlink;
 - the resolved real path stays inside the project root's real path.
 
-Every write and delete goes through it, including those in `packages.py`. Names that become path components (`repo_path` segments, rule names, skill names, `<pkg>`) must also pass `fs.safe_name`: `[A-Za-z0-9._-]+`, not `.` or `..`.
+Every write and delete goes through it, including those in `packages.py`. `fs.atomic_write` creates its temp file (`.<name>.<random>.tmp`) in the destination's own directory, so the destination's check covers it. Names that become path components (`repo_path` segments, rule names, skill names, `<pkg>`) must also pass `fs.safe_name`: `[A-Za-z0-9._-]+`, not `.` or `..`.
 
 ## 8. Commands, errors, output
 
@@ -394,23 +394,27 @@ pytest, offline, no tokens (N8). Dev deps: pytest, ruff.
 - Fallback test: set `uploadpack.allowReachableSHA1InWant=false` and `uploadpack.allowAnySHA1InWant=false` on a server repo, pin a historical commit that no ref advertises, and assert, through the verbose log, that the clone fallback ran and installed that commit.
 
 **Unit tests:**
-- dependency parsing: accept and reject tables, with cases ported from upstream URL-parsing tests;
+- dependency parsing: accept and reject tables, with cases ported from upstream URL-parsing tests, plus `#ref@alias`, `@` in paths, and FQDN edge cases (`git..corp`, `git_corp.example`, single label);
 - ref classification, with cases ported from upstream semver tests;
 - shape detection;
 - rule transforms for both targets;
-- hook source parsing and command rewrite (quoted, unquoted, `$`);
+- hook source parsing and command rewrite: unquoted, double-quoted and single-quoted tokens, `$` in a path, and a script outside `.apm/hooks/` rejected;
 - hook merge and strip: duplicate user entry kept, edited Antigravity container rejected, malformed JSON rejected;
 - `fs.check_destination` with symlinked `.claude/` and `..` names;
-- per-file classification table (§7.2), all five rows;
+- per-file classification table (§7.2), every row, including an executable-bit-only change;
+- `UndoLog`: restore of overwritten, created and deleted files, and modes;
 - lockfile round-trip and field order;
 - `content_hash` and `file_hash` against the golden fixture.
 
 **CLI flows** (click `CliRunner` in `tmp_path`):
 - `init` → `install <url>`: files land, and the lockfile matches.
-- Reinstall: no fetch, and every file's bytes and mtime are unchanged (R38).
+- Reinstall: no fetch, and no file is written: bytes and mtimes are unchanged, including hook configs, sidecars, `.gitignore` and the lockfile (R38).
 - `update` moves a branch pin and deploys the new commit's content. Covers finding 5 of §13.
 - A changed declared ref installs the new commit without a tamper error.
-- A tampered `apm_modules/` dir is re-fetched; a re-tagged upstream at the locked commit fails with the tamper message.
+- A modified `apm_modules/<pkg>/` dir is re-fetched at the locked commit.
+- An edited `content_hash` in the lockfile fails the install with the tamper message.
+- A moved tag whose locked commit is still reachable installs the locked commit with no conflict. A force-push that makes the locked commit unreachable fails with git's error.
+- A package update that only changes a script's executable bit updates the deployed mode.
 - `uninstall` removes files and hook entries.
 - `--frozen`: passes when in sync; fails for each R19 drift case.
 - Collision between two packages; an untracked existing file; a user-edited tracked file kept on reinstall, on update, and on cleanup.
@@ -419,10 +423,13 @@ pytest, offline, no tokens (N8). Dev deps: pytest, ruff.
 - Subset union across two requests.
 - Rejected inputs: a local dep inside a package, `http://`, shorthand, a semver-looking ref.
 - Cycle skipped; overlapping `apm_modules` paths rejected.
-- Fault injection: make `apply` raise mid-way, then assert `apm.yml` and the lockfile are byte-identical and that the next install completes cleanly. Make the lockfile write raise, then assert both metadata files are unchanged.
+- Fault injection, run for `install`, `update` and `install <new-dep>`: raise (a) in the middle of applying files, (b) between writing a native hook file and its sidecar, (c) on the lockfile replace after `apm.yml` was replaced, and (d) `KeyboardInterrupt` during cleanup. For each, assert the project tree outside `apm_modules/` is byte- and mode-identical to a snapshot taken before the command, and that the next command succeeds.
 
 **Upstream compatibility (N4):**
-- *Mandatory, during implementation:* generate golden fixtures with apm-lite (an `apm.yml` with every supported entry form, and a lockfile with remote, transitive, subset and local entries). Verify them with upstream's own reader while `src/apm_cli/` still exists: `APMPackage.from_apm_yml`, `DependencyReference.parse` on each entry, and `LockFile.read`, plus the deployment ledger rebuild. Commit the fixtures, and assert in the suite that apm-lite's output equals them byte for byte.
+- *Mandatory, during implementation:* generate golden fixtures with apm-lite (an `apm.yml` with every supported entry form, and a lockfile with remote, transitive, subset and local entries). Verify them with upstream's own code while `src/apm_cli/` still exists, checking meaning, not just that loading succeeds:
+  - `APMPackage.from_apm_yml` on the manifest, and `DependencyReference.parse` / `parse_from_dict` on each entry: assert upstream's ref, alias (none), identity key and `apm_modules` install path equal apm-lite's.
+  - `LockFile.read` plus the deployment ledger rebuild: assert each deployed file's owner and hash equal apm-lite's.
+  Commit the fixtures and the verification script's output, and assert in the suite that apm-lite's output equals the fixtures byte for byte.
 - *Optional round trip:* when `APM_UPSTREAM_BIN` is set (e.g. Homebrew `apm` 0.33.0), copy an apm-lite project and run upstream `apm install --frozen --no-policy` against the same `git_server`. Assert:
   - exit 0;
   - the same packages installed at the same commits;
@@ -473,7 +480,7 @@ Order:
 
 - **Sequential fetch:** fine for tens of packages. Parallelise later if needed.
 - **No global git cache:** each project clones its own packages. A warm `apm_modules/` at the locked commit skips fetching.
-- **No transactional rollback of deployed files:** a crash mid-apply leaves a mix of old and new files, which the next run repairs (§7.2).
+- **In-memory undo log:** errors and Ctrl-C roll back fully; a hard kill during deployment can leave partial changes (§7.1).
 - **Antigravity rule frontmatter** (`globs` as a string, explicit `always_on`) follows the docs, not upstream. Verify against a real `agy` run early in implementation.
 - **Antigravity hook commands are relative** (`.agents/hooks/<pkg>/x.sh`). Upstream does the same, which assumes `agy` runs hooks from the project root. Verify with `agy`.
 - **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/authoring-packages.md`.
@@ -517,3 +524,22 @@ Round 1, `deep_reasoner` (codex), job `job-2026-10-10T15-20-50-95693-spec-review
 | 15 | Fetch fallback and its fixture (advisory) | Accepted (§4.1, §9) |
 | 16 | Unverifiable statements (advisory) | Accepted: success criteria, R38, frozen drift cases, network, auth and size wording made checkable |
 | 17 | R30/R31 contradiction; "only apply writes" (advisory) | Accepted (R30, §2) |
+
+Round 2, same session, job `job-2026-10-10T15-20-50-95693-spec-review-r2`. The reviewer withdrew all three declined points (6 part 4, 13, 14). New findings and dispositions:
+
+| # | Finding (tag) | Disposition |
+|---|---|---|
+| 1 | Two metadata replaces still break R37; temp files outside the allowlist (blocking) | Accepted: undo log restores `apm.yml` if the lockfile replace fails; temp files sit beside their destination (§7.1, §7.3) |
+| 2 | Hook config and sidecar can diverge after interruption (blocking) | Accepted: both go through the undo log (§6.4, §7.1) |
+| 3 | Recovery assumed the next command rebuilds the same plan (blocking) | Accepted: replaced plan-based recovery with an in-memory undo log; hard kill documented as the limit (§7.1, §11) |
+| 4 | Byte-equal row drops edit protection (blocking) | Accepted by explicit policy: bytes equal to the plan count as managed output (R25, §7.2) |
+| 5 | Frozen vs local; tag resolution vs pins (blocking) | Accepted: commit checks remote-only; a tag matching the lockfile takes the locked commit; R19 states the one remote query frozen makes (§4.3) |
+| 6 | `#ref@alias` and weak host check (blocking) | Accepted: `@` rejected in path and ref; upstream `is_valid_fqdn` ported; fixtures assert parsed meaning (§3.2, §9) |
+| 7 | Executable bit ignored by classification (blocking) | Accepted (§7.2) |
+| 8 | Single-quoted Claude paths (blocking) | Accepted: always double quotes (§6.4) |
+| 9 | Hook resource context (advisory) | Accepted by narrowing: referenced scripts must live in `.apm/hooks/`, which is copied whole (R22, §6.4) |
+| 10 | `_local/<name>` collisions (advisory) | Accepted: duplicate final folder names rejected (§4.4) |
+| 11 | Reproducibility criterion inputs (advisory) | Accepted (requirements, success criteria) |
+| 12 | Test details (advisory) | Accepted (§9) |
+
+Status: consensus. No blocking finding declined. Round cap (2) reached, so no further automatic review.
