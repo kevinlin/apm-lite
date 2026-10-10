@@ -439,14 +439,16 @@ def _written(spec: DepSpec) -> str:
     return raw if isinstance(raw, str) else str(raw.get("git") or raw.get("path"))
 
 
+def entry_matches(spec: DepSpec, selector: str) -> bool:
+    """True if *selector* names *spec*: as written, by `host/path` key, or by local path."""
+    selector = selector.strip()
+    return selector in (_written(spec).strip(), spec.key, spec.local_path)
+
+
 def remove_entry(m: Manifest, selector: str) -> DepSpec:
     """Remove every entry matching `selector` (as written, `host/path` key, or local path)."""
     selector = selector.strip()
-    matches = [
-        i
-        for i, spec in enumerate(m.deps)
-        if selector in (_written(spec).strip(), spec.key, spec.local_path)
-    ]
+    matches = [i for i, spec in enumerate(m.deps) if entry_matches(spec, selector)]
     if not matches:
         declared = ", ".join(spec.key for spec in m.deps) or "none"
         raise ApmError(
