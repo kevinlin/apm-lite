@@ -249,18 +249,16 @@ def reconcile(
     for name, target in TARGETS.items():
         native_path = check_destination(project, target.hook_file)
         sidecar_path = check_destination(project, target.sidecar)
+        old_native, old_sidecar = read_json(native_path), read_json(sidecar_path)
         native, sidecar = merge(
-            read_json(native_path),
-            read_json(sidecar_path),
-            hooks[name],
-            target,
-            configured=name in manifest.targets,
+            old_native, old_sidecar, hooks[name], target, configured=name in manifest.targets
         )
-        if native or native_path.exists():
+        # Rewrite a hook file only when its content changes, so a user's own formatting survives.
+        if native != old_native:
             hook_files[target.hook_file] = (json.dumps(native, indent=2) + "\n").encode()
-        if sidecar is not None:
+        if sidecar is not None and sidecar != old_sidecar:
             hook_files[target.sidecar] = (json.dumps(sidecar, indent=2) + "\n").encode()
-        elif sidecar_path.exists():
+        elif sidecar is None and sidecar_path.exists():
             hook_deletes.append(target.sidecar)
 
     tracked = old.all_tracked() if old else {}

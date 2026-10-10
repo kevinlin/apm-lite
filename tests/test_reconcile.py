@@ -329,3 +329,46 @@ def test_chmod_keeps_bytes_and_unrelated_permission_bits(tmp_path):
     assert rc.classify(path, PlannedFile(b"same", 0o644, "."), None) == "noop"
     path.chmod(0o700)
     assert rc.classify(path, PlannedFile(b"same", 0o755, "."), None) == "noop"
+
+
+def test_reinstall_makes_no_git_calls(git_server, project):  # R38: no fetches
+    r, _ = _pkg_repo(git_server)
+    _run(project, _proj(project, [r.https]))
+    lines = []
+    rc.reconcile(
+        project,
+        load(project / "apm.yml", is_root=True),
+        git=Git(verbose=True, echo=lines.append),
+        warn=lambda s: None,
+    )
+    assert lines == []
+
+
+def test_executable_bit_only_change_is_deployed(git_server, project):  # R25 chmod branch
+    r, _ = _pkg_repo(git_server)
+    _run(project, _proj(project, [r.https]))
+    script = project / ".claude/hooks/base/c.sh"
+    assert os.stat(script).st_mode & 0o111
+    r.commit(
+        {
+            "apm.yml": "name: base\nversion: '1.0.0'\n",
+            ".apm/instructions/style.instructions.md": RULE,
+            ".apm/hooks/hooks.json": HOOKS,
+            ".apm/hooks/c.sh": "#!/bin/sh\n",
+        }
+    )  # same bytes, no longer executable
+    res = _run(project, load(project / "apm.yml", is_root=True), mode="update")
+    assert ".claude/hooks/base/c.sh" in res.written
+    assert not os.stat(script).st_mode & 0o111
+
+
+def test_existing_settings_without_hook_changes_keep_their_bytes(project):  # R22: no rewrite
+    settings = project / ".claude/settings.json"
+    settings.parent.mkdir()
+    settings.write_text('{"permissions":{"allow":["Bash"]}}')  # compact, user-formatted
+    agents = project / ".agents/hooks.json"
+    agents.parent.mkdir()
+    agents.write_text('{"mine": {"Stop": []}}')
+    _run(project, _proj(project, []))
+    assert settings.read_text() == '{"permissions":{"allow":["Bash"]}}'
+    assert agents.read_text() == '{"mine": {"Stop": []}}'

@@ -8,7 +8,7 @@ import frontmatter
 import yaml
 
 from apm_lite.errors import ApmError
-from apm_lite.fs import safe_name
+from apm_lite.fs import has_symlink_between, safe_name
 from apm_lite.model import PlannedFile, ResolvedPackage
 from apm_lite.targets import Target
 
@@ -70,7 +70,7 @@ def plan_rules(pkg: ResolvedPackage, target: Target) -> dict[str, PlannedFile]:
     if pkg.depth != 0 and pkg.package_type != "apm_package":
         return {}
     src_dir = pkg.source_dir / ".apm" / "instructions"
-    if src_dir.is_symlink() or not src_dir.is_dir():
+    if has_symlink_between(src_dir, pkg.source_dir) or not src_dir.is_dir():
         return {}
     planned: dict[str, PlannedFile] = {}
     for path in sorted(src_dir.iterdir()):

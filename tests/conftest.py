@@ -111,18 +111,8 @@ class GitServer:
         self.root = root
         self.work_root = work_root
         self.gitconfig = gitconfig
-        self._rewrites_written = False
-
-    def _write_rewrites(self) -> None:
-        if self._rewrites_written:
-            return
-        key = f"url.file://{self.root}/.insteadOf"
-        for prefix in (f"https://{FAKE_HOST}/", f"ssh://git@{FAKE_HOST}/", f"git@{FAKE_HOST}:"):
-            _git("config", "--file", str(self.gitconfig), "--add", key, prefix)
-        self._rewrites_written = True
 
     def repo(self, path: str) -> ServerRepo:
-        self._write_rewrites()
         bare = self.root / f"{path}.git"
         work = self.work_root / path
         bare.parent.mkdir(parents=True, exist_ok=True)
@@ -143,6 +133,11 @@ def git_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     for role in ("AUTHOR", "COMMITTER"):
         monkeypatch.setenv(f"GIT_{role}_NAME", "Test")
         monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@git.test")
+    # Every git.test URL resolves to the local fake server, even for repos no test created, so
+    # no test can reach the network (N8).
+    key = f"url.file://{tmp_path / 'server'}/.insteadOf"
+    for prefix in (f"https://{FAKE_HOST}/", f"ssh://git@{FAKE_HOST}/", f"git@{FAKE_HOST}:"):
+        _git("config", "--file", str(gitconfig), "--add", key, prefix)
     return gitconfig
 
 

@@ -55,3 +55,18 @@ def test_git_failure_carries_stderr(git_env):
     with pytest.raises(ApmError) as e:
         Git().ls_remote("https://git.test/missing/repo.git")
     assert "git ls-remote" in e.value.message and e.value.hint
+
+
+def test_git_runs_with_terminal_prompt_disabled(monkeypatch, tmp_path):  # N2
+    import apm_lite.git as git_module
+
+    monkeypatch.delenv("GIT_TERMINAL_PROMPT", raising=False)
+    seen = {}
+
+    def fake_run(args, **kwargs):
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(git_module.subprocess, "run", fake_run)
+    Git().run(["status"], cwd=tmp_path)
+    assert seen["GIT_TERMINAL_PROMPT"] == "0"

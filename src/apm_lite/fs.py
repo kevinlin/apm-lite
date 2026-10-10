@@ -27,6 +27,16 @@ def safe_name(name: str) -> str:
     return name
 
 
+def has_symlink_between(path: Path, root: Path) -> bool:
+    """True if *path* or any of its ancestors below *root* is a symlink (sources and destinations)."""
+    path, root = path.absolute(), root.absolute()
+    return any(
+        part.is_symlink()
+        for part in (path, *path.parents)
+        if part.is_relative_to(root) and part != root
+    )
+
+
 def check_destination(project: Path, rel: str) -> Path:
     """Validate an allowed project-relative destination without following symlinks."""
     relative = Path(rel)

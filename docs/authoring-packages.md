@@ -159,7 +159,7 @@ A command can name a script in one of three ways:
 - `${CLAUDE_PLUGIN_ROOT}/<path>`, resolved against the package root;
 - `${PLUGIN_ROOT}/<path>`, resolved the same way.
 
-The script must be a regular file inside `.apm/hooks/`, not a symlink. Anything else is an error that tells you to move the script, and anything it needs, into `.apm/hooks/`. That keeps each hook bundle self-contained. A command with no such path, such as `echo done`, is copied as written.
+The script must be a regular file inside `.apm/hooks/`, not a symlink. Anything else is an error that tells you to move the script, and anything it needs, into `.apm/hooks/`. That keeps each hook bundle self-contained. A path that starts with `../` is also an error, because it can't be rewritten and would resolve against the harness's working directory at runtime. A command with no such path, such as `echo done`, is copied as written.
 
 The whole `.apm/hooks/` folder is copied to `.claude/hooks/<pkg>/` and `.agents/hooks/<pkg>/`, keeping relative paths and file modes. The hook source files are not copied. `package.json` is, so a `package.json` that sets `"type": "module"` still applies to your `.js` scripts. `<pkg>` is the last segment of the repo path, the folder name of a local package, or the project's `name` for the project's own hooks. Set the executable bit (`chmod +x`) on scripts and commit it.
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
-from apm_lite.fs import safe_name
+from apm_lite.fs import has_symlink_between, safe_name
 from apm_lite.model import PlannedFile, ResolvedPackage
 from apm_lite.targets import Target
 
@@ -68,7 +68,7 @@ def _sources(pkg: ResolvedPackage) -> list[tuple[str, Path]]:
     else:
         return []
     if selected is None:
-        if base.is_symlink() or not base.is_dir():
+        if has_symlink_between(base, pkg.source_dir) or not base.is_dir():
             return []
         names = sorted(p.name for p in base.iterdir() if (p / "SKILL.md").is_file())
     else:
@@ -76,7 +76,7 @@ def _sources(pkg: ResolvedPackage) -> list[tuple[str, Path]]:
     found = []
     for name in names:
         src = base / safe_name(name)
-        if not src.is_symlink() and src.is_dir():
+        if not has_symlink_between(src, pkg.source_dir) and src.is_dir():
             found.append((name, src))
     return found
 

@@ -168,3 +168,19 @@ def test_single_skill_name_that_hyphen_cases_to_nothing_is_an_error(tmp_path):
     _w(tmp_path / "SKILL.md", "---\ndescription: d\n---\n")
     with pytest.raises(ApmError):
         plan_skills(_pkg(tmp_path, "claude_skill", path="team/___"), TARGETS["claude"])
+
+
+def test_symlinked_skills_folders_are_not_followed(tmp_path):  # R21/R30
+    outside = tmp_path / "outside"
+    _w(outside / "skills/a/SKILL.md", "---\ndescription: d\n---\n")
+    pkg_dir = tmp_path / "pkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "skills").symlink_to(outside / "skills")
+    (pkg_dir / ".apm").symlink_to(outside)
+    for ptype, selected in (
+        ("skill_bundle", ("a",)),
+        ("skill_bundle", None),
+        ("apm_package", None),
+    ):
+        pkg = _pkg(pkg_dir, ptype, selected)
+        assert plan_skills(pkg, TARGETS["claude"])[0] == {}, ptype

@@ -162,3 +162,31 @@ def test_plan_rules_skips_symlinked_source(tmp_path):
     link.parent.mkdir(parents=True)
     link.symlink_to(outside)
     assert plan_rules(_pkg(tmp_path), TARGETS["claude"]) == {}
+
+
+def test_symlinked_apm_folder_is_not_followed(tmp_path):  # R21/R30: no files from outside
+    from apm_lite.deploy.rules import plan_rules
+    from apm_lite.model import DepSpec, ResolvedPackage
+    from apm_lite.targets import TARGETS
+
+    outside = tmp_path / "outside" / "instructions"
+    outside.mkdir(parents=True)
+    (outside / "secret.instructions.md").write_text("from outside")
+    pkg_dir = tmp_path / "pkg"
+    pkg_dir.mkdir()
+    (pkg_dir / ".apm").symlink_to(tmp_path / "outside")
+    spec = DepSpec(raw="x", kind="remote", key="git.test/t/p", repo_path="t/p")
+    pkg = ResolvedPackage(
+        spec=spec,
+        commit="a" * 40,
+        ref_is_immutable=True,
+        depth=1,
+        parent_key=None,
+        parent_repo_url=None,
+        source_dir=pkg_dir,
+        package_type="apm_package",
+        name="p",
+        version=None,
+        content_hash=None,
+    )
+    assert plan_rules(pkg, TARGETS["claude"]) == {}

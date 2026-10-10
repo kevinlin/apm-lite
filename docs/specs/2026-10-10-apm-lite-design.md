@@ -292,6 +292,7 @@ Scripts:
 - Script tokens in a command:
   - `./<path>` resolves against the hook file's folder, then against the package root.
   - `${CLAUDE_PLUGIN_ROOT}/<path>` or `${PLUGIN_ROOT}/<path>` resolves against the package root only.
+- A `../` script reference is an `ApmError`: it can't be rewritten and would resolve against the harness's working directory.
 - A resolved script must be a regular file inside `.apm/hooks/` (no symlink). Anything else is an `ApmError` with the hint to move the script, and anything it needs, into `.apm/hooks/`. This keeps each hook bundle self-contained, including any `package.json` that sets the module type for `.js` scripts.
 - Copy: the whole `.apm/hooks/` folder, minus the JSON files used as hook sources, goes to `<target>/hooks/<pkg>/` with paths relative to `.apm/hooks/` and file modes kept. Each copied file goes through the normal checks (§7.2).
 - `<pkg>` is the last segment of `repo_path`, the local folder name, or the root project's `name`, and must pass `fs.safe_name`.

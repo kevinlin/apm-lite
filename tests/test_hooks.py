@@ -501,3 +501,12 @@ def test_only_apm_packages_deploy_hooks(tmp_path):
     for package_type in ("skill_bundle", "claude_skill", "hybrid"):
         pkg.package_type = package_type
         assert plan_hooks(pkg, TARGETS["claude"]) == ([], {}, [])
+
+
+@pytest.mark.parametrize("cmd", ["../shared/x.sh", "bash ../x.sh", 'sh "../x.sh"', "x=../y.sh"])
+def test_parent_relative_script_rejected(tmp_path, cmd):
+    d = _hooks(tmp_path, "h.json", {})
+    with pytest.raises(ApmError, match=r"\.\./"):
+        rewrite_command(
+            cmd, target="claude", label="pkg", hook_file_dir=d, hooks_root=d, package_root=tmp_path
+        )

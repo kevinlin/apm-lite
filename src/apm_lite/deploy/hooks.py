@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import Path
 
 from apm_lite.errors import ApmError
-from apm_lite.fs import safe_name
+from apm_lite.fs import has_symlink_between, safe_name
 from apm_lite.model import HookEntry, PlannedFile, ResolvedPackage
 from apm_lite.targets import Target
 
@@ -20,6 +20,8 @@ _SCRIPT_TOKEN = re.compile(
     rf"(?P<quote>[\"']?)(?P<path>{_PLUGIN_SCRIPT}|{_RELATIVE_SCRIPT})(?P=quote)"
 )
 _SCRIPT_HINT = "move the script, and anything it needs, into .apm/hooks/"
+# A `../x` token would be left unrewritten and resolve against the harness cwd at runtime.
+_PARENT_SCRIPT = re.compile(r"(?:^|[\s\"'=])\.\.[\\/]")
 # Upstream routes `hooks-<token>.json` to that harness only (integration/hook_file_routing.py),
 # so files for harnesses apm-lite doesn't support are skipped rather than deployed everywhere.
 _TARGET_TOKENS = (
@@ -49,10 +51,6 @@ def read_json(path: Path) -> dict:
     return data
 
 
-def _has_symlink(path: Path, root: Path) -> bool:
-    return any(part.is_symlink() for part in (path, *path.parents) if part.is_relative_to(root))
-
-
 def _script_relative_path(
     token: str, bases: tuple[Path, ...], hooks_root: Path, package_root: Path
 ) -> str:
@@ -65,7 +63,7 @@ def _script_relative_path(
             rel = resolved.relative_to(hooks_root.resolve()).as_posix()
         except (OSError, RuntimeError, ValueError) as exc:
             raise ApmError(f"hook script {path} is outside .apm/hooks/", _SCRIPT_HINT) from exc
-        if _has_symlink(path.absolute(), package_root.absolute()) or not path.is_file():
+        if has_symlink_between(path, package_root) or not path.is_file():
             raise ApmError(f"hook script {path} must be a regular non-symlink file", _SCRIPT_HINT)
         if any(char in rel for char in '$`"'):
             raise ApmError(f"unsafe hook script path {rel!r}", _SCRIPT_HINT)
@@ -84,6 +82,11 @@ def rewrite_command(
 ) -> str:
     """Rewrite supported script tokens to their copies, preserving shell quoting."""
     label = safe_name(label)
+    if _PARENT_SCRIPT.search(command):
+        raise ApmError(
+            f"hook command {command!r} references a script outside .apm/hooks/ ('../')",
+            _SCRIPT_HINT,
+        )
 
     def replace(match: re.Match[str]) -> str:
         token = match["path"]
@@ -156,7 +159,7 @@ def plan_hooks(
     if pkg.depth != 0 and pkg.package_type != "apm_package":
         return [], {}, []  # hooks, like rules, come only from APM packages and the project (R8)
     hooks_root = pkg.source_dir / ".apm" / "hooks"
-    if not hooks_root.is_dir() or _has_symlink(hooks_root.absolute(), pkg.source_dir.absolute()):
+    if not hooks_root.is_dir() or has_symlink_between(hooks_root, pkg.source_dir):
         return [], {}, []
     label = safe_name(pkg.label)
     routed = {hooks_root / f"hooks-{token}.json" for token in _TARGET_TOKENS}
