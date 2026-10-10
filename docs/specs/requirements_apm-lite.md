@@ -142,7 +142,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 - **N6. Install:** clone the repo, then `uv tool install .` or `pipx install .`. Distribution name `apm-lite`, command `apm`.
 - **N7. Dependencies:** runtime deps limited to click, PyYAML, ruamel.yaml and python-frontmatter.
 - **N8. Tests:** the full suite runs offline with no tokens.
-- **N9. Docs:** `README.md`, `docs/reference.md`, `docs/authoring-packages.md`, `CONTRIBUTING.md`, `PRINCIPLES.md`, `CHANGELOG.md`, `AGENTS.md`, plus `docs/specs/`. Nothing else.
+- **N9. Docs:** `README.md`, `docs/user-guide/reference.md`, `docs/user-guide/authoring-packages.md`, `CONTRIBUTING.md`, `PRINCIPLES.md`, `CHANGELOG.md`, `AGENTS.md`, plus `docs/specs/`. Nothing else.
 
 ## Assumptions
 

@@ -47,11 +47,5 @@ Add `-v` before the command to see each `git` call and each file written or dele
 
 ## Documentation
 
-- [docs/reference.md](docs/reference.md): `apm.yml`, dependency forms, the lockfile, target paths, command flags, and how updates and edits are handled.
-- [docs/authoring-packages.md](docs/authoring-packages.md): how to build and release a package of rules, skills and hooks.
-
-Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md) and [PRINCIPLES.md](PRINCIPLES.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+- [docs/user-guide/reference.md](docs/user-guide/reference.md): `apm.yml`, dependency forms, the lockfile, target paths, command flags, and how updates and edits are handled.
+- [docs/user-guide/authoring-packages.md](docs/user-guide/authoring-packages.md): how to build and release a package of rules, skills and hooks.

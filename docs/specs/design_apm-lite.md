@@ -446,8 +446,8 @@ Kept or new:
 ```
 src/apm_lite/            new package
 tests/                   new suite (old tests/ deleted)
-docs/reference.md        apm.yml subset, dependency forms, lockfile fields, target paths, commands
-docs/authoring-packages.md  layouts, rules, skills, hooks, per-target hook files
+docs/user-guide/reference.md  apm.yml subset, dependency forms, lockfile fields, target paths, commands
+docs/user-guide/authoring-packages.md  layouts, rules, skills, hooks, per-target hook files
 docs/specs/              these specs
 README.md                what it is, install from clone, quickstart, PATH clash note
 CONTRIBUTING.md          uv sync, pytest, ruff
@@ -487,9 +487,9 @@ Order:
   - `trigger: glob` with `globs: "**/*.py,**/*.pyi"` (one comma-separated string) applies once a matching file is read.
   - `.agents/skills/<name>/SKILL.md` loads.
   - `.agents/hooks.json` with an `apm` container works. `agy` names the hooks `jsonhook__apm_<Event>_<i>_<j>`. `PreInvocation` (flat) and `PreToolUse` (nested) both fire.
-  - Hooks run with **`.agents/`** as the working directory. The workspace root is only given on stdin (`workspacePaths`), not in an env var. Commands are therefore written relative to `.agents/` (§6.4). Hook scripts that need the project root should read `workspacePaths` from stdin, and `docs/authoring-packages.md` says so.
+  - Hooks run with **`.agents/`** as the working directory. The workspace root is only given on stdin (`workspacePaths`), not in an env var. Commands are therefore written relative to `.agents/` (§6.4). Hook scripts that need the project root should read `workspacePaths` from stdin, and `docs/user-guide/authoring-packages.md` says so.
   - A PreToolUse hook that fails (for example, a missing script) blocks every tool call. Deployed command paths must be right, which the Task 15 `agy` end-to-end check confirms.
-- **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/authoring-packages.md`.
+- **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/user-guide/authoring-packages.md`.
 - **Claude hook events aren't validated** beyond skipping Antigravity-only events. Claude's event list changes often, and an unknown event is ignored by Claude rather than breaking it.
 
 ## 12. Traceability
