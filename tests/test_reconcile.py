@@ -3,11 +3,8 @@ import os
 
 import pytest
 
-from apm_lite import reconcile as rc
-from apm_lite.errors import ApmError
-from apm_lite.git import Git
-from apm_lite.manifest import load
-from apm_lite.model import PlannedFile
+import apm_lite as rc
+from apm_lite import ApmError, Git, PlannedFile, load
 
 RULE = "---\napplyTo: '**/*.py'\n---\nUse black.\n"
 HOOKS = json.dumps({"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "./c.sh"}]}]})
@@ -76,7 +73,7 @@ def test_classify_table(tmp_path):
     assert rc.classify(p, pf, None) == "chmod"
     os.chmod(p, 0o644)
     p.write_bytes(b"old")
-    from apm_lite.lockfile import file_hash
+    from apm_lite import file_hash
 
     assert rc.classify(p, pf, file_hash(b"old")) == "write"
     assert rc.classify(p, pf, file_hash(b"orig")) == "keep-edited"
@@ -166,7 +163,7 @@ def test_fault_injection_restores_tree(git_server, project, monkeypatch, fail_at
 
 
 def test_root_output_and_lock_ownership(git_server, project):
-    from apm_lite.lockfile import file_hash, read
+    from apm_lite import file_hash, read
 
     r, commit = _pkg_repo(git_server)
     m = _proj(project, [r.https], "[claude, antigravity]")
@@ -295,7 +292,7 @@ def test_symlink_destination_is_rejected_before_writes(git_server, project, tmp_
 
 
 def test_gitignore_exact_line_and_metadata_rollback(project, monkeypatch):
-    from apm_lite import manifest as manifest_module
+    import apm_lite as manifest_module
 
     m = _proj(project, [])
     (project / ".gitignore").write_text("other/apm_modules/\n")
@@ -316,7 +313,7 @@ def test_gitignore_exact_line_and_metadata_rollback(project, monkeypatch):
     assert _snapshot(project) == snap
     monkeypatch.undo()
     _run(project, m)
-    assert (project / "apm.yml").read_bytes() == manifest_module.dump(m)
+    assert (project / "apm.yml").read_bytes() == manifest_module.dump_manifest(m)
     assert (project / ".gitignore").read_text().splitlines().count("apm_modules/") == 1
     _run(project, _proj(project, []))
     assert (project / ".gitignore").read_text().splitlines().count("apm_modules/") == 1

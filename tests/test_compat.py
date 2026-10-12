@@ -16,9 +16,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from apm_lite.cli import cli
-from apm_lite.lockfile import read
-from apm_lite.manifest import load
+from apm_lite import cli, load, read
 
 FIXTURES = Path(__file__).parent / "fixtures" / "compat"
 RULE = "---\napplyTo: '**/*.py'\n---\nUse black.\n"

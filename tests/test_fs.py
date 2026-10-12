@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.fs import UndoLog, atomic_write, check_destination, safe_name
+from apm_lite import ApmError, UndoLog, atomic_write, check_destination, safe_name
 
 
 @pytest.mark.parametrize("bad", ["", ".", "..", "a/b", "a b", "x$y"])

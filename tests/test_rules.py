@@ -1,9 +1,14 @@
 import pytest
 
-from apm_lite.deploy.rules import plan_rules, render_rule, split_apply_to
-from apm_lite.errors import ApmError
-from apm_lite.model import DepSpec, ResolvedPackage
-from apm_lite.targets import TARGETS
+from apm_lite import (
+    TARGETS,
+    ApmError,
+    DepSpec,
+    ResolvedPackage,
+    plan_rules,
+    render_rule,
+    split_apply_to,
+)
 
 SRC = '---\napplyTo: "**/*.py,**/*.{ts,tsx}"\ndescription: d\n---\n\n# Style\nUse black.\n'
 
@@ -165,9 +170,7 @@ def test_plan_rules_skips_symlinked_source(tmp_path):
 
 
 def test_symlinked_apm_folder_is_not_followed(tmp_path):  # R21/R30: no files from outside
-    from apm_lite.deploy.rules import plan_rules
-    from apm_lite.model import DepSpec, ResolvedPackage
-    from apm_lite.targets import TARGETS
+    from apm_lite import TARGETS, DepSpec, ResolvedPackage, plan_rules
 
     outside = tmp_path / "outside" / "instructions"
     outside.mkdir(parents=True)

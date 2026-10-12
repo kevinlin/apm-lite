@@ -2,7 +2,7 @@
 
 from click.testing import CliRunner
 
-from apm_lite.cli import cli
+from apm_lite import cli
 
 SKILL = "---\ndescription: d\n---\n"
 

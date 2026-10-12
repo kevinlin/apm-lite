@@ -2,10 +2,17 @@ import json
 
 import pytest
 
-from apm_lite.deploy.hooks import merge, plan_hooks, read_json, rewrite_command
-from apm_lite.errors import ApmError
-from apm_lite.model import DepSpec, HookEntry, ResolvedPackage
-from apm_lite.targets import TARGETS
+from apm_lite import (
+    TARGETS,
+    ApmError,
+    DepSpec,
+    HookEntry,
+    ResolvedPackage,
+    merge,
+    plan_hooks,
+    read_json,
+    rewrite_command,
+)
 
 
 def _pkg(root):

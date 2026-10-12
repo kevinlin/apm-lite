@@ -32,11 +32,11 @@ dev = [
 ]
 
 [project.scripts]
-apm = "apm_lite.cli:main"
+apm = "apm_lite:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["apm_lite*"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = ["apm_lite"]
 
 [tool.ruff]
 line-length = 100
@@ -78,7 +78,7 @@ known-first-party = ["apm_lite"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S103", "S105", "S106", "S108", "S110", "S112", "S603", "S607"]
-"src/apm_lite/**" = ["S603", "S607"]
+"src/apm_lite.py" = ["S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"

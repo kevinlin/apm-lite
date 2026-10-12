@@ -12,7 +12,7 @@ def test_git_server_serves_https_ssh_and_scp_urls(git_server):
 
 
 def test_model_owner_and_marker(tmp_path):
-    from apm_lite.model import DepSpec, ResolvedPackage
+    from apm_lite import DepSpec, ResolvedPackage
 
     spec = DepSpec(raw="x", kind="remote", key="git.test/team/pkg", repo_path="team/pkg")
     pkg = ResolvedPackage(

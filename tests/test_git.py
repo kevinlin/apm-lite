@@ -2,8 +2,7 @@ import subprocess
 
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.git import Git, resolve_ref
+from apm_lite import ApmError, Git, resolve_ref
 
 
 def test_ls_remote_and_resolve(git_server):
@@ -58,7 +57,7 @@ def test_git_failure_carries_stderr(git_env):
 
 
 def test_git_runs_with_terminal_prompt_disabled(monkeypatch, tmp_path):  # N2
-    import apm_lite.git as git_module
+    import apm_lite as git_module
 
     monkeypatch.delenv("GIT_TERMINAL_PROMPT", raising=False)
     seen = {}

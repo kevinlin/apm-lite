@@ -1,7 +1,6 @@
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.manifest import add_entry, dump, init_text, load, parse_entry, remove_entry
+from apm_lite import ApmError, add_entry, dump_manifest, init_text, load, parse_entry, remove_entry
 
 
 @pytest.mark.parametrize(
@@ -157,11 +156,11 @@ def test_add_and_remove_keep_comments_and_transport(project):
     add_entry(m, "git@git.corp.example:team/pkg.git#v1", None)
     add_entry(m, "https://git.corp.example/team/skills.git#v2", ["b"])
     add_entry(m, "https://git.corp.example/team/skills.git#v2", ["a"])
-    text = dump(m).decode()
+    text = dump_manifest(m).decode()
     assert "git@git.corp.example:team/pkg.git#v1" in text
     assert "skills:\n" in text and "- a\n" in text and "- b\n" in text
     remove_entry(m, "git.corp.example/team/pkg")
-    assert "team/pkg" not in dump(m).decode()
+    assert "team/pkg" not in dump_manifest(m).decode()
     with pytest.raises(ApmError):
         remove_entry(m, "nope")
 
@@ -185,8 +184,8 @@ def test_removing_the_last_entry_keeps_a_loadable_manifest(project):
     )
     add_entry(m, "https://git.corp.example/team/pkg.git#v1", None)
     remove_entry(m, "https://git.corp.example/team/pkg.git#v1")
-    again = load(_write(project / "apm.yml", dump(m).decode()), is_root=True)
-    assert again.deps == [] and "# deps" in dump(m).decode()
+    again = load(_write(project / "apm.yml", dump_manifest(m).decode()), is_root=True)
+    assert again.deps == [] and "# deps" in dump_manifest(m).decode()
 
 
 def test_add_existing_dependency_only_edits_when_subset_grows(project):
@@ -205,7 +204,7 @@ def test_add_subset_merges_into_entry_written_as_object(project):
     add_entry(m, url + "#v2", ["b"])
     add_entry(m, url + "#v2", ["a", "b"])
     add_entry(m, url + "#v3", ["c"])  # another ref is another request
-    reloaded = load(_write(project / "apm.yml", dump(m).decode()), is_root=True)
+    reloaded = load(_write(project / "apm.yml", dump_manifest(m).decode()), is_root=True)
     assert [(d.ref, d.skills) for d in reloaded.deps] == [("v2", ("a", "b")), ("v3", ("c",))]
 
 
@@ -217,7 +216,7 @@ def test_remove_matches_entry_as_written_key_and_local_path(project):
     remove_entry(m, "./packages/x")
     assert [d.key for d in m.deps] == ["git.corp.example/t/p"]
     remove_entry(m, "ssh://git@git.corp.example/t/p.git")
-    assert m.deps == [] and "packages/x" not in dump(m).decode()
+    assert m.deps == [] and "packages/x" not in dump_manifest(m).decode()
 
 
 def test_rejections_name_the_supported_forms():
