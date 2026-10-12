@@ -4,15 +4,34 @@ apm-lite installs rules, skills and hooks from Git servers into Claude Code and 
 
 ## Install
 
-You need Python 3.10 or later, `git` on your PATH, and macOS or Linux.
+You need Python 3.10 or later, `pip`, `git` on your PATH, and macOS or Linux.
+
+### From a clone
 
 ```sh
 git clone <your internal mirror of this repo>
 cd apm-lite
-uv tool install .
+pip install .
 ```
 
-`pipx install .` works too. The command is `apm`.
+The command is `apm`. If pip warns that its script directory isn't on your PATH, add that directory or pass `--user` and add `~/.local/bin`.
+
+### Without a clone
+
+All of apm-lite is one file, so if `git clone` of this repo is blocked you can copy two raw files instead: `src/apm_lite.py` and `requirements.txt`.
+
+```sh
+curl -fsSLO <raw URL of this repo>/src/apm_lite.py
+curl -fsSLO <raw URL of this repo>/requirements.txt
+pip install -r requirements.txt
+python apm_lite.py --version
+```
+
+Run it as `python apm_lite.py <command>`, or add an alias to get the `apm` command the rest of this README uses:
+
+```sh
+alias apm='python /path/to/apm_lite.py'
+```
 
 That name clashes with upstream APM's `apm`. If both are installed, whichever comes first on your PATH runs. Uninstall one, or reorder PATH.
 
