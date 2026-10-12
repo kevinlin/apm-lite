@@ -4,7 +4,7 @@ Date: 2026-10-10 (Asia/Singapore)
 
 The documented consumer and author workflows passed in the tested environment. No product defect was found. This is a scoped verification result, not certification of every supported platform or Git server.
 
-The [test plan](test-plan.md) was saved before adding the subprocess tests. Product source was unchanged at revision `9a38763d0a6c5d064890f44dc2ae3d87aa49acb2`. Added [subprocess tests](../../tests/e2e/test_e2e_subprocess.py) and a [synthetic native fixture builder](../../tests/e2e/native_fixture.py). Tests and documentation are uncommitted workspace additions.
+The [test plan](test-plan.md) was saved before adding the subprocess tests. Product source was unchanged at revision `9a38763d0a6c5d064890f44dc2ae3d87aa49acb2`. Added [subprocess tests](../../tests/e2e/test_e2e_subprocess.py) and a [synthetic native fixture builder](../../tests/e2e/native_fixture.py).
 
 The end-to-end scripts are grouped under `tests/e2e/` and remain included in normal pytest runs. Generated output and evidence are grouped under `tests/e2e/output/` and ignored by Git. Historical logs retain the file paths used when those runs were performed; the full suite was rerun after moving the files.
 
@@ -14,7 +14,7 @@ The end-to-end scripts are grouped under `tests/e2e/` and remain included in nor
 |---|---|---|
 | Existing-suite baseline | 343 passed, 1 skipped, 41.93 seconds | Observed before new tests were added; final suite evidence below supersedes this baseline |
 | New real-process end-to-end cases | 16 passed, no skips | [Command transcript](../../tests/e2e/output/e2e.log), [JUnit](../../tests/e2e/output/e2e.xml) |
-| Final `uv run pytest -q` | 359 passed, 1 skipped, 57.84 seconds | [Suite log](../../tests/e2e/output/suite.log), [JUnit](../../tests/e2e/output/suite.xml), [parsed counts](../../tests/e2e/output/test-summary.json) |
+| Final `uv run pytest -q` | 359 passed, 1 skipped, 61.77 seconds | [Suite log](../../tests/e2e/output/suite.log), [JUnit](../../tests/e2e/output/suite.xml), [parsed counts](../../tests/e2e/output/test-summary.json) |
 | `uv run ruff check src tests` | All checks passed | [Ruff log](../../tests/e2e/output/ruff.log) |
 | Isolated `uv tool install .` | Installed `apm-lite==0.1.0` and its four runtime dependencies; console command worked outside checkout | [Install log](../../tests/e2e/output/tool-install.log), [installed command results](../../tests/e2e/output/installed-command.json) |
 | Claude Code native probe | 4/4 functional checks passed | [Response](../../tests/e2e/output/claude-native.stdout), [command, status and hook markers](../../tests/e2e/output/claude-native.json) |
