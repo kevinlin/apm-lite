@@ -1,0 +1,4 @@
+click>=8.0.0
+PyYAML>=6.0
+ruamel.yaml>=0.18.0
+python-frontmatter>=1.0.0
