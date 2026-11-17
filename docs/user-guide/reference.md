@@ -10,6 +10,9 @@ version: "1.0.0"
 targets:
   - claude
   - antigravity
+  - cursor
+  - codex
+  - gemini
 dependencies:
   apm:
     - https://git.corp.example/team/base-rules.git#v2.1.0
@@ -25,7 +28,7 @@ dependencies:
 | `name` | yes | A non-empty string. Also the `<pkg>` folder for the project's own hook scripts. |
 | `version` | yes | A non-empty string. Quote it: an unquoted `1.0` is a number and fails. |
 | `description`, `author`, `license` | no | Kept as written. apm-lite doesn't use them. |
-| `targets` | no | A list of `claude` and/or `antigravity`. Absent means `[claude]`. |
+| `targets` | no | A list of `claude`, `antigravity`, `cursor`, `codex` and/or `gemini`. Absent means `[claude]`. See [target paths](#target-paths). |
 | `dependencies.apm` | no | A list of dependency entries (next section). |
 
 Any other top-level key, and any `dependencies` key other than `apm`, is ignored with one warning per key. It stays in the file unchanged when apm-lite saves `apm.yml`. The same goes for every dependency's `apm.yml`.
@@ -38,7 +41,7 @@ The project's own `.apm/` folder deploys like a dependency's. A `SKILL.md` or `s
 |---|---|
 | no `name` or `version`, an empty one, or a non-string one | Both are required strings. |
 | `target: claude` | The singular key isn't supported. Use `targets:`. |
-| `targets: []`, or a name other than `claude` and `antigravity` | The list needs at least one known target. |
+| `targets: []`, or a name other than `claude`, `antigravity`, `cursor`, `codex` and `gemini` | The list needs at least one known target. |
 | `owner/repo`, or `git.corp.example/team/pkg` | Shorthand and scheme-free hosts aren't supported. |
 | `http://…` | Use `https://`. |
 | `https://git/team/pkg`, `https://git_corp.example/team/pkg` | The host must be a dotted, fully qualified name. |
@@ -103,7 +106,7 @@ When several requests carry `skills:`, the union is deployed. One request withou
 
 ```yaml
 lockfile_version: '1'
-apm_version: 0.1.0
+apm_version: 0.2.0
 dependencies:
 - repo_url: team/pkg
   name: pkg
@@ -140,7 +143,7 @@ local_deployed_file_hashes: {...}
 - Dependencies are sorted by depth, then `repo_url`. Empty fields are left out.
 - `package_type` is one of `apm_package`, `claude_skill`, `hybrid` or `skill_bundle` (see [package shapes](authoring-packages.md#package-shapes)).
 - `deployed_files` lists files plus each skill's folder, without a trailing slash. `deployed_file_hashes` covers files only.
-- Hook config files (`.claude/settings.json`, `.agents/hooks.json`) and the ownership sidecars are not listed. Copied hook scripts are.
+- Hook config files (`.claude/settings.json`, `.agents/hooks.json`, `.cursor/hooks.json`, `.codex/hooks.json`, `.gemini/settings.json`) and the ownership sidecars are not listed. Copied hook scripts are.
 - `content_hash` is recorded for remote packages only. Local packages are read in place and have none.
 - A file hash is a SHA-256 of the content. In a UTF-8 text file, CRLF counts as LF.
 - The lockfile has no `generated_at` and no `deployments` block.
@@ -150,21 +153,34 @@ On `install`, a dependency whose entry has the same declared ref and a full comm
 
 ## Target paths
 
-| | Claude (default) | Antigravity (`antigravity` in `targets:`) |
-|---|---|---|
-| root | `.claude/` | `.agents/` |
-| rules | `.claude/rules/<name>.md` | `.agents/rules/<name>.md` |
-| skills | `.claude/skills/<name>/` | `.agents/skills/<name>/` |
-| hook config | `.claude/settings.json`, key `hooks` | `.agents/hooks.json`, key `apm` |
-| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` |
-| hook ownership sidecar | `.claude/apm-hooks.json` | `.agents/apm-hooks.json` |
-| events skipped with a warning | `PreInvocation`, `PostInvocation` | anything except `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop` |
+| | Claude (default) | Antigravity | Cursor | Codex | Gemini |
+|---|---|---|---|---|---|
+| name in `targets:` | `claude` | `antigravity` | `cursor` | `codex` | `gemini` |
+| root | `.claude/` | `.agents/` | `.cursor/` | `.codex/` | `.gemini/` |
+| rules | `.claude/rules/<name>.md` | `.agents/rules/<name>.md` | `.cursor/rules/<name>.mdc` | none | none |
+| skills | `.claude/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` |
+| hook config | `.claude/settings.json`, key `hooks` | `.agents/hooks.json`, key `apm` | `.cursor/hooks.json`, key `hooks`, plus `version: 1` if the file has no `version` | `.codex/hooks.json`, key `hooks` | `.gemini/settings.json`, key `hooks` |
+| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` | `.cursor/hooks/<pkg>/` | `.codex/hooks/<pkg>/` | `.gemini/hooks/<pkg>/` |
+| script path in a hook command | `"${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<script>"` | `hooks/<pkg>/<script>` | `.cursor/hooks/<pkg>/<script>` | `"$(git rev-parse --show-toplevel)/.codex/hooks/<pkg>/<script>"` | `.gemini/hooks/<pkg>/<script>` |
+| hook ownership sidecar | `.claude/apm-hooks.json` | `.agents/apm-hooks.json` | `.cursor/apm-hooks.json` | `.codex/apm-hooks.json` | `.gemini/apm-hooks.json` |
+| hook event names | as written | as written | 8 events translated to camelCase | as written | 3 events translated |
+| events skipped with a warning | `PreInvocation`, `PostInvocation` | anything except `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop` | anything that isn't a Cursor event after translation | anything that isn't a Codex event | `PreInvocation`, `PostInvocation` |
+| hook `timeout` written in | seconds | seconds | seconds | seconds | milliseconds |
+
+The [events table](authoring-packages.md#events) lists the translated names and the events each target takes.
 
 apm-lite merges its hook entries into the hook config and leaves everything else in that file as it was. The sidecar records which entries are apm-lite's, so the next run removes only those.
 
-Antigravity runs hook commands with `.agents/` as the working directory. Commands that reference a copied script are written as `hooks/<pkg>/<script>` for that reason. Claude commands use `"${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<script>"`.
+- Antigravity, Cursor, Codex and Gemini all read skills from `.agents/skills/`. apm-lite writes each skill there once, however many of those targets you list, and keeps it while any one of them is listed.
+- Codex and Gemini get no rules. Their tools read rules only from `AGENTS.md` and `GEMINI.md`, which apm-lite doesn't write. When a package has rules and `codex` or `gemini` is in `targets:`, apm-lite warns once per command.
+- Antigravity runs hook commands with `.agents/` as the working directory. Commands that reference a copied script are written as `hooks/<pkg>/<script>` for that reason.
+- Cursor runs project hooks from the project root, so its commands start with `.cursor/hooks/`.
+- Codex runs hook commands from the session's working directory. Its commands start with `$(git rev-parse --show-toplevel)`, so they find the scripts from any subfolder. That needs the project folder to be the root of its git repository. apm-lite warns when it writes such a command and the project folder has no `.git`. Codex runs project hooks only in a trusted project, and asks you to review new or changed hooks first. A hook that doesn't fire may be waiting for that review.
+- Gemini runs hook commands from the session's working directory, so `.gemini/hooks/<pkg>/<script>` resolves when Gemini is started in the project folder. Gemini reads `timeout` in milliseconds. A package's source file still gives seconds, and apm-lite writes the value times 1000.
+- apm-lite's Gemini output was not checked against a live Gemini CLI.
+- A project that targets both `claude` and `cursor` should turn off Cursor's "import Claude hooks" setting. With it on, Cursor runs each hook twice. apm-lite doesn't detect this.
 
-Removing a target from `targets:` deletes its files and strips its hook entries on the next run.
+Removing a target from `targets:` deletes its files and strips its hook entries on the next run. Hook entries you added or edited yourself stay in the hook file. The scripts apm-lite copied are deleted with the rest of the bundle, unless you edited them, so a hook of yours that calls one stops working. Skills in `.agents/skills/` stay while any of `antigravity`, `cursor`, `codex` or `gemini` is still listed.
 
 ## Commands
 
@@ -241,13 +257,17 @@ apm-lite adds `apm_modules/` to `.gitignore` if no line equals it.
 
 ### Where apm-lite writes
 
-Only inside the project: `.claude/`, `.agents/` and `apm_modules/`, plus `apm.yml`, `apm.lock.yaml` and `.gitignore` at the root. A destination that passes through a symlink, or resolves outside those places, is an error. apm-lite writes nothing in your home folder. `git` and its helpers may.
+Only inside the project: `.claude/`, `.agents/`, `.cursor/`, `.codex/`, `.gemini/` and `apm_modules/`, plus `apm.yml`, `apm.lock.yaml` and `.gitignore` at the root. A destination that passes through a symlink, or resolves outside those places, is an error. apm-lite writes nothing in your home folder. `git` and its helpers may.
 
 ### Failures and interruptions
 
 If a command fails or you press Ctrl-C, apm-lite restores every file it changed in the project to its previous bytes and mode. That covers deployed files, hook configs, sidecars, `.gitignore`, `apm.yml` and `apm.lock.yaml`. The exception is `apm_modules/`, which is a cache and is not restored. A hard kill (`SIGKILL`, power loss) during deployment can leave partial changes. If that happens, `git status` shows them.
 
-Malformed JSON in `.claude/settings.json`, `.agents/hooks.json` or a sidecar is an error before anything is written. So is an `apm` entry in `.agents/hooks.json` that apm-lite doesn't own.
+apm-lite reads a target's hook file (`.claude/settings.json`, `.agents/hooks.json`, `.cursor/hooks.json`, `.codex/hooks.json` or `.gemini/settings.json`) only when it has entries to add there or entries of its own to remove. It adds entries when the target is in `targets:` and a package ships hooks for it. It removes entries when the target's sidecar exists. Otherwise the file is not read or written, so a broken hook file for a target you don't use can't fail an install.
+
+Malformed JSON in a hook file that apm-lite reads, or in a sidecar, is an error before anything is written. So is an `apm` entry in `.agents/hooks.json` that apm-lite doesn't own.
+
+apm-lite reads these files as strict JSON and can't keep comments when it writes them. Gemini accepts comments in `.gemini/settings.json`. If that file has comments and apm-lite has to change it, the install fails before anything is written, with the hint `apm can't keep comments in this file: remove them, or keep this package's hooks out of gemini`. The file is left as it was.
 
 ## Errors, warnings and git
 

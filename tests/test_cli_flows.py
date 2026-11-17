@@ -87,4 +87,4 @@ def test_update_unknown_dep_errors(git_server, project, monkeypatch):
 
 
 def test_version():
-    assert "0.1.0" in run("--version").stdout
+    assert "0.2.0" in run("--version").stdout

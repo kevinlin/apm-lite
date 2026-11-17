@@ -56,7 +56,7 @@ def test_quickstart_and_usage_errors(apm, project):
     assert all(
         command in help_text for command in ("init", "install", "uninstall", "update", "deps")
     )
-    assert "0.1.0" in apm(project, "--version").stdout
+    assert "0.2.0" in apm(project, "--version").stdout
     for command in ("list", "tree"):
         assert "apm install" in apm(project, "deps", command, expected=1).stderr
     apm(project, "init")

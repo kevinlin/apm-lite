@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apm-lite"
-version = "0.1.0"
-description = "Agent package manager for Claude Code and Antigravity on internal Git"
+version = "0.2.0"
+description = "Agent package manager for Claude Code, Antigravity, Cursor, Codex and Gemini on internal Git"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}

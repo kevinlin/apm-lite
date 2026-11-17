@@ -1,5 +1,5 @@
 lockfile_version: '1'
-apm_version: 0.1.0
+apm_version: 0.2.0
 dependencies:
 - repo_url: _local/own
   name: own

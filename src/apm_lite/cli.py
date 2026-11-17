@@ -73,7 +73,8 @@ def _select_key(m: manifest.Manifest, project: Path, selector: str) -> str:
 @click.option("-v", "--verbose", is_flag=True, help="Show git commands and file changes.")
 @click.pass_context
 def cli(ctx: click.Context, verbose: bool) -> None:
-    """Install rules, skills and hooks from internal Git into Claude Code and Antigravity."""
+    """Install rules, skills and hooks from internal Git for Claude Code, Antigravity, Cursor,
+    Codex and Gemini."""
     ctx.obj = {"verbose": verbose}
 
 

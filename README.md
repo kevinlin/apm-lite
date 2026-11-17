@@ -1,6 +1,6 @@
 # apm-lite
 
-apm-lite installs rules, skills and hooks from Git servers into Claude Code and Antigravity projects. You list the packages a project needs in `apm.yml`. `apm install` fetches them with `git` (or reads a local path), deploys them into `.claude/` and `.agents/`, and records the exact commits in `apm.lock.yaml`, so two developers get the same files. It is a cut-down fork of APM (Agent Package Manager) v0.33.0 and keeps upstream's `apm.yml` and `apm.lock.yaml` formats, so manifests and packages can move between the two tools. apm-lite opens no network connections itself: all access goes through `git`, with whatever credentials your `git clone` already uses.
+apm-lite installs rules, skills and hooks from Git servers into projects for Claude Code, Antigravity, Cursor, Codex CLI and Gemini CLI. You list the packages a project needs in `apm.yml`. `apm install` fetches them with `git` (or reads a local path), deploys them into the folders those tools read (`.claude/`, `.agents/`, `.cursor/`, `.codex/` and `.gemini/`), and records the exact commits in `apm.lock.yaml`, so two developers get the same files. It is a cut-down fork of APM (Agent Package Manager) v0.33.0 and keeps upstream's `apm.yml` and `apm.lock.yaml` formats, so manifests and packages can move between the two tools. apm-lite opens no network connections itself: all access goes through `git`, with whatever credentials your `git clone` already uses.
 
 ## Install
 
@@ -26,7 +26,7 @@ apm install https://git.corp.example/team/agent-rules.git#v1.0.0
 
 `apm init` writes a starter `apm.yml`. `apm install <url>` adds the dependency to it exactly as you typed it, deploys the package, and writes `apm.lock.yaml`. Commit `apm.yml` and `apm.lock.yaml`. A teammate who clones the repo runs `apm install` and gets the same result. `apm_modules/`, the fetch cache, is added to `.gitignore` for you.
 
-Claude Code is the default target. To deploy for Antigravity as well, set `targets: [claude, antigravity]` in `apm.yml`.
+Claude Code is the default target. To deploy for other tools, list them in `apm.yml`, for example `targets: [claude, cursor]`. The names are `claude`, `antigravity`, `cursor`, `codex` and `gemini`. Codex and Gemini get skills and hooks but no rules. The [target paths table](docs/user-guide/reference.md#target-paths) shows what each target gets and where.
 
 ## Commands
 
