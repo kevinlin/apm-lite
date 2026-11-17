@@ -178,7 +178,7 @@ apm-lite merges its hook entries into the hook config and leaves everything else
 - Codex runs hook commands from the session's working directory. Its commands start with `$(git rev-parse --show-toplevel)`, so they find the scripts from any subfolder. That needs the project folder to be the root of its git repository. apm-lite warns when it writes such a command and the project folder has no `.git`. Codex runs project hooks only in a trusted project, and asks you to review new or changed hooks first. A hook that doesn't fire may be waiting for that review.
 - Gemini runs hook commands from the session's working directory, so `.gemini/hooks/<pkg>/<script>` resolves when Gemini is started in the project folder. Gemini reads `timeout` in milliseconds. A package's source file still gives seconds, and apm-lite writes the value times 1000.
 - apm-lite's Gemini output was not checked against a live Gemini CLI.
-- A project that targets both `claude` and `cursor` should turn off Cursor's "import Claude hooks" setting. With it on, Cursor runs each hook twice. apm-lite doesn't detect this.
+- Cursor also loads Claude Code hooks from `.claude/settings.json` when its setting **Include Third-Party Plugins, Skills, and Other Configs** is on. The setting is under Cursor Settings → Agents → Third-Party Imports, and it is on by default. A project that targets both `claude` and `cursor` should turn it off. With it on, Cursor runs each hook twice. apm-lite doesn't detect this. The same setting controls Cursor's other third-party imports.
 
 Removing a target from `targets:` deletes its files and strips its hook entries on the next run. Hook entries you added or edited yourself stay in the hook file. The scripts apm-lite copied are deleted with the rest of the bundle, unless you edited them, so a hook of yours that calls one stops working. Skills in `.agents/skills/` stay while any of `antigravity`, `cursor`, `codex` or `gemini` is still listed.
 
@@ -267,7 +267,7 @@ apm-lite reads a target's hook file (`.claude/settings.json`, `.agents/hooks.jso
 
 Malformed JSON in a hook file that apm-lite reads, or in a sidecar, is an error before anything is written. So is an `apm` entry in `.agents/hooks.json` that apm-lite doesn't own.
 
-apm-lite reads these files as strict JSON and can't keep comments when it writes them. Gemini accepts comments in `.gemini/settings.json`. If that file has comments and apm-lite has to change it, the install fails before anything is written, with the hint `apm can't keep comments in this file: remove them, or keep this package's hooks out of gemini`. The file is left as it was.
+apm-lite reads these files as strict JSON and can't keep comments when it writes them. Gemini accepts comments in `.gemini/settings.json`. If that file has comments and apm-lite has to read it, the install fails before anything is written, with the hint `apm can't keep comments in this file: remove them, or keep this package's hooks out of gemini`. That is every install while a package deploys hooks to Gemini, even one with nothing to change. The file is left as it was.
 
 ## Errors, warnings and git
 
