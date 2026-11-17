@@ -184,3 +184,19 @@ def test_symlinked_skills_folders_are_not_followed(tmp_path):  # R21/R30
     ):
         pkg = _pkg(pkg_dir, ptype, selected)
         assert plan_skills(pkg, TARGETS["claude"])[0] == {}, ptype
+
+
+@pytest.mark.parametrize("name", ["antigravity", "cursor", "codex", "gemini"])
+def test_every_target_but_claude_shares_agents_skills(name):
+    assert TARGETS[name].skills_dir == ".agents/skills"
+
+
+def test_target_events_are_translated_before_the_support_check():
+    cursor, gemini, codex = TARGETS["cursor"], TARGETS["gemini"], TARGETS["codex"]
+    assert cursor.native_event("UserPromptSubmit") == "beforeSubmitPrompt"
+    assert cursor.supports("beforeSubmitPrompt") and not cursor.supports("Notification")
+    assert not cursor.is_nested("preToolUse")
+    assert gemini.native_event("preToolUse") == "BeforeTool"
+    assert gemini.supports("Notification") and not gemini.supports("PreInvocation")
+    assert codex.native_event("Stop") == "Stop"
+    assert codex.supports("Stop") and not codex.supports("Notification")

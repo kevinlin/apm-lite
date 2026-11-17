@@ -80,7 +80,17 @@ def test_check_destination_rejects_invalid_relative_paths(project, rel):
         check_destination(project, rel)
 
 
-@pytest.mark.parametrize("rel", [".agents/rules/x.md", "apm_modules/team/pkg", ".gitignore"])
+@pytest.mark.parametrize(
+    "rel",
+    [
+        ".agents/rules/x.md",
+        ".cursor/rules/x.mdc",
+        ".codex/hooks.json",
+        ".gemini/settings.json",
+        "apm_modules/team/pkg",
+        ".gitignore",
+    ],
+)
 def test_check_destination_accepts_all_roots(project, rel):
     assert check_destination(project, rel) == project / rel
 

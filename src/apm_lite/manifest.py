@@ -22,6 +22,7 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from apm_lite.errors import ApmError
 from apm_lite.model import DepSpec
 from apm_lite.refs import classify
+from apm_lite.targets import TARGETS
 
 # Upstream `is_valid_fqdn` (utils/github_host.py:1009).
 FQDN_RE = re.compile(
@@ -33,7 +34,7 @@ SUPPORTED_FORMS = (
     "git@host:group/repo.git#ref, ./local/path"
 )
 
-TARGET_NAMES = ("claude", "antigravity")
+TARGET_NAMES = tuple(TARGETS)
 DEFAULT_TARGETS = ("claude",)
 
 _KNOWN_KEYS = frozenset(
@@ -311,7 +312,7 @@ def _parse_targets(doc: dict, path: Path) -> tuple[str, ...]:
     if "targets" not in doc:
         return DEFAULT_TARGETS
     value = doc["targets"]
-    hint = f"use a list of {' and/or '.join(TARGET_NAMES)}, e.g. targets: [claude]"
+    hint = f"use a list of these: {', '.join(TARGET_NAMES)}, e.g. targets: [claude]"
     if not isinstance(value, list) or not value:
         raise ApmError(f"{path}: 'targets' must be a non-empty list", hint=hint)
     unknown = [t for t in value if t not in TARGET_NAMES]

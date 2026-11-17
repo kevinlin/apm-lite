@@ -120,13 +120,27 @@ def test_load_defaults_and_warnings(project):
         "name: p\nversion: 1.0\n",
         "name: ' '\nversion: '1'\n",
         "name: p\nversion: '1'\ntargets: []\n",
-        "name: p\nversion: '1'\ntargets: [cursor]\n",
+        "name: p\nversion: '1'\ntargets: [copilot]\n",
         "name: p\nversion: '1'\ntarget: claude\n",
     ],
 )
 def test_load_rejects(project, text):
     with pytest.raises(ApmError):
         load(_write(project / "apm.yml", text), is_root=True)
+
+
+def test_load_accepts_every_target(project):
+    text = "name: p\nversion: '1'\ntargets: [gemini, claude, codex, cursor, antigravity, codex]\n"
+    m = load(_write(project / "apm.yml", text), is_root=True)
+    assert m.targets == ("gemini", "claude", "codex", "cursor", "antigravity")
+
+
+def test_unknown_target_hint_names_every_target(project):
+    with pytest.raises(ApmError) as exc:
+        load(
+            _write(project / "apm.yml", "name: p\nversion: '1'\ntargets: [copilot]\n"), is_root=True
+        )
+    assert "claude, antigravity, cursor, codex, gemini" in exc.value.hint
 
 
 def test_dependency_manifest_rejects_local(project):

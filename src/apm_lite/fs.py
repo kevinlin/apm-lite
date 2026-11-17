@@ -13,7 +13,7 @@ from types import TracebackType
 from apm_lite.errors import ApmError
 
 SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-ALLOWED_ROOTS = (".claude", ".agents", "apm_modules")
+ALLOWED_ROOTS = (".claude", ".agents", ".cursor", ".codex", ".gemini", "apm_modules")
 ALLOWED_ROOT_FILES = ("apm.yml", "apm.lock.yaml", ".gitignore")
 
 
