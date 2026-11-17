@@ -227,18 +227,20 @@ apm-lite translates Claude's event names for Cursor and Gemini, as the table sho
 | `PreToolUse` | deployed | deployed, nested with a matcher | deployed as `preToolUse` | deployed | deployed as `BeforeTool` |
 | `PostToolUse` | deployed | deployed, nested with a matcher | deployed as `postToolUse` | deployed | deployed as `AfterTool` |
 | `Stop` | deployed | deployed, as a flat handler list | deployed as `stop` | deployed | deployed as `SessionEnd` |
-| `UserPromptSubmit` | deployed | skipped with a warning | deployed as `beforeSubmitPrompt` | deployed | deployed as written |
-| `SubagentStop` | deployed | skipped with a warning | deployed as `subagentStop` | deployed | deployed as written |
+| `UserPromptSubmit` | deployed | skipped with a warning | deployed as `beforeSubmitPrompt` | deployed | written as it is, but Gemini has no such event |
+| `SubagentStop` | deployed | skipped with a warning | deployed as `subagentStop` | deployed | written as it is, but Gemini has no such event |
 | `SessionStart` | deployed | skipped with a warning | deployed as `sessionStart` | deployed | deployed as written |
 | `SessionEnd` | deployed | skipped with a warning | deployed as `sessionEnd` | deployed | deployed as written |
-| `PreCompact` | deployed | skipped with a warning | deployed as `preCompact` | deployed | deployed as written |
+| `PreCompact` | deployed | skipped with a warning | deployed as `preCompact` | deployed | written as it is, but Gemini has no such event |
 | `PreInvocation` | skipped with a warning | deployed, as a flat handler list | skipped with a warning | skipped with a warning | skipped with a warning |
 | `PostInvocation` | skipped with a warning | deployed, as a flat handler list | skipped with a warning | skipped with a warning | skipped with a warning |
 | any other event | deployed as written | skipped with a warning | deployed as written if it is a Cursor event name, otherwise skipped with a warning | deployed as written if it is a Codex event name, otherwise skipped with a warning | deployed as written |
 
 Cursor's event names are `sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `subagentStart`, `subagentStop`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterFileEdit`, `beforeSubmitPrompt`, `preCompact`, `stop`, `afterAgentResponse`, `afterAgentThought`, `beforeTabFileRead`, `afterTabFileEdit` and `workspaceOpen`. Codex's are `PreModelRequest`, `PostModelRequest`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop` and `Interrupt`. For Gemini, `preToolUse` and `postToolUse` also become `BeforeTool` and `AfterTool`.
 
-Claude's `Stop` fires after each response. Gemini's `SessionEnd` fires once per session. If the difference matters, ship `hooks-gemini.json`.
+Gemini's event names are `SessionStart`, `SessionEnd`, `BeforeAgent`, `AfterAgent`, `BeforeModel`, `AfterModel`, `BeforeToolSelection`, `BeforeTool`, `AfterTool`, `PreCompress` and `Notification`. apm-lite translates only the names shown in the table. It writes `UserPromptSubmit`, `SubagentStop` and `PreCompact` for Gemini as they are. Gemini has no events with those names, so those hooks don't run there. To run them on Gemini, ship `hooks-gemini.json` with Gemini's names. `BeforeAgent` fires when the user submits a prompt, and `PreCompress` fires before Gemini compresses the context.
+
+Claude's `Stop` fires after each response. Gemini's `SessionEnd` fires once per session. If the difference matters, ship `hooks-gemini.json` and use `AfterAgent`, which fires once per turn.
 
 The shape of an entry depends on the target:
 
@@ -253,7 +255,7 @@ apm-lite doesn't validate Claude's or Gemini's event names. It passes them throu
 
 apm-lite adds its entries under `hooks` in `.claude/settings.json`, `.cursor/hooks.json`, `.codex/hooks.json` and `.gemini/settings.json`, and under the name `apm` in `.agents/hooks.json`. For Cursor it also sets `"version": 1` when it adds entries and the file has no `version`. It never changes an existing `version`, and it doesn't remove `version` when it removes entries. It leaves everything else in those files alone, and a sidecar file (`apm-hooks.json` in the target's folder) records which entries are its own. In `.agents/hooks.json`, the `apm` container belongs to apm-lite. If it holds a hook you added, the install fails and asks you to move your hooks under another name.
 
-apm-lite reads a target's hook file only when it has entries to add there or entries of its own to remove. A hook file for a target the project doesn't use is never read or written. The files are strict JSON to apm-lite. Gemini accepts comments in `.gemini/settings.json`, but apm-lite can't keep them. If that file has comments and apm-lite has to change it, the install fails before anything is written, and the file stays as it was. The error tells the consumer to remove the comments or keep the package's hooks out of Gemini.
+apm-lite reads a target's hook file only when it has entries to add there, or when its sidecar records entries it added before. Otherwise it never reads or writes the file, so a hook file for a target the project has never used is left alone. The files are strict JSON to apm-lite. Gemini accepts comments in `.gemini/settings.json`, but apm-lite can't keep them. If that file has comments and apm-lite has to read it, the install fails before anything is written, and the file stays as it was. That is every install while a package deploys hooks to Gemini, even one with nothing to change. The error tells the consumer to remove the comments or keep the package's hooks out of Gemini.
 
 ### Where hooks run
 
@@ -266,7 +268,7 @@ Each tool runs hook commands from a different folder, and apm-lite writes script
 
 A failing `PreToolUse` hook blocks every tool call in Antigravity. A wrong script path does that. Test your hooks locally before you tag a release.
 
-A project that targets both `claude` and `cursor` should turn off Cursor's "import Claude hooks" setting. With it on, Cursor runs each hook twice. apm-lite doesn't detect this.
+Cursor also loads Claude Code hooks from `.claude/settings.json` when its setting **Include Third-Party Plugins, Skills, and Other Configs** is on. The setting is under Cursor Settings → Agents → Third-Party Imports, and it is on by default. A project that targets both `claude` and `cursor` should turn it off. With it on, Cursor runs each hook twice. apm-lite doesn't detect this. The same setting controls Cursor's other third-party imports.
 
 ## Releasing
 
@@ -304,7 +306,7 @@ apm install ../my-package
 
 Then check:
 
-- the folders of the targets you set (`.claude/`, `.agents/`, `.cursor/`, `.codex/`, `.gemini/`) hold the rules, skills and hook scripts you expect;
+- the folders of the targets you set (`.claude/`, `.agents/`, `.cursor/`, `.codex/`, `.gemini/`) hold the rules, skills and hook scripts you expect. Skills for every target except Claude are in `.agents/skills/`;
 - the hook configs (`.claude/settings.json`, `.agents/hooks.json`, `.cursor/hooks.json`, `.codex/hooks.json`, `.gemini/settings.json`) hold the hook entries, with script paths that exist;
 - the warnings the install printed.
 
@@ -312,7 +314,7 @@ To test a target other than Claude, add it to `targets:` in the scratch `apm.yml
 
 - Codex: run `git init` in the scratch folder first, because Codex commands need the project folder to be the git root. Trust the project and review its hooks when Codex asks.
 - Gemini: start Gemini in the scratch folder.
-- Cursor: if the scratch project also targets `claude`, turn off Cursor's "import Claude hooks" setting.
+- Cursor: if the scratch project also targets `claude`, turn off Cursor's third-party imports setting. See [Where hooks run](#where-hooks-run).
 - A tool matcher: check it on each target. A Claude matcher is translated for Cursor only. Codex and Gemini get it as you wrote it.
 
 Clean up with `apm uninstall ../my-package`.
