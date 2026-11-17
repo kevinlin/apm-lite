@@ -45,7 +45,14 @@ def read_json(path: Path) -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as exc:
-        raise ApmError(f"cannot read JSON {path}: {exc}") from exc
+        hint = None
+        if (
+            isinstance(exc, ValueError)
+            and path.parent.name == ".gemini"
+            and path.name == "settings.json"
+        ):
+            hint = "apm can't keep comments in this file: remove them, or keep this package's hooks out of gemini"
+        raise ApmError(f"cannot read JSON {path}: {exc}", hint) from exc
     if not isinstance(data, dict):
         raise ApmError(f"invalid JSON {path}: expected an object")
     return data
@@ -74,7 +81,7 @@ def _script_relative_path(
 def rewrite_command(
     command: str,
     *,
-    target: str,
+    target: Target,
     label: str,
     hook_file_dir: Path,
     hooks_root: Path,
@@ -97,10 +104,8 @@ def rewrite_command(
             relative = token[2:]
             bases = (hook_file_dir, package_root)
         rel = _script_relative_path(relative.replace("\\", "/"), bases, hooks_root, package_root)
-        if target == "claude":
-            return f'"${{CLAUDE_PROJECT_DIR}}/.claude/hooks/{label}/{rel}"'
-        quote = match["quote"]
-        return f"{quote}hooks/{label}/{rel}{quote}"
+        quote = '"' if target.force_quote else match["quote"]
+        return f"{quote}{target.script_prefix}/{label}/{rel}{quote}"
 
     return _SCRIPT_TOKEN.sub(replace, command)
 
@@ -136,7 +141,7 @@ def _handlers(
             "type": "command",
             "command": rewrite_command(
                 handler["command"],
-                target=target.name,
+                target=target,
                 label=pkg.label,
                 hook_file_dir=source.parent,
                 hooks_root=hooks_root,
@@ -144,11 +149,39 @@ def _handlers(
             ),
         }
         if "timeout" in handler:
-            if type(handler["timeout"]) is not int:
-                raise ApmError(f"invalid timeout in {source}: expected an integer")
-            entry["timeout"] = handler["timeout"]
+            timeout = handler["timeout"]
+            if type(timeout) is not int or timeout <= 0:
+                raise ApmError(f"invalid timeout in {source}: expected a positive integer")
+            entry["timeout"] = timeout * 1000 if target.timeout_ms else timeout
         rendered.append(entry)
     return rendered
+
+
+def _cursor_matcher(matcher: str | None, event: str, source: Path, *, foreign: bool) -> str | None:
+    """Translate only tool alternatives with an exact Cursor equivalent."""
+    if not foreign or matcher in (None, "", "*", ".*"):
+        return matcher
+    mapping = {
+        "Bash": "Shell",
+        "Read": "Read",
+        "Edit": "Write",
+        "Write": "Write",
+        "Grep": "Grep",
+        "Task": "Task",
+        "WebFetch": "WebFetch",
+        "WebSearch": "WebSearch",
+    }
+    names = matcher.split("|")
+    if (
+        event not in {"preToolUse", "postToolUse"}
+        or any(name not in mapping for name in names)
+        or (set(names) & {"Edit", "Write"} and not {"Edit", "Write"} <= set(names))
+    ):
+        raise ApmError(
+            f"matcher {matcher!r} in {source} has no exact Cursor equivalent",
+            "ship hooks-cursor.json with Cursor's own events and matchers",
+        )
+    return "|".join(dict.fromkeys(mapping[name] for name in names))
 
 
 def plan_hooks(
@@ -173,14 +206,16 @@ def plan_hooks(
     hook_definitions = {*generic, *routed}  # never copied into the bundle
     entries: list[HookEntry] = []
     warnings: list[str] = []
+    cursor = target.name == "cursor"
     for source in sources:
         if source.is_symlink():
             raise ApmError(f"hook source {source} must not be a symlink")
         doc = read_json(source)
-        for event, declarations in _event_map(doc.get("hooks", doc), str(source)).items():
+        for source_event, declarations in _event_map(doc.get("hooks", doc), str(source)).items():
+            event = target.native_event(source_event)
             if not target.supports(event):
                 warnings.append(
-                    f"hook event {event!r} in {source} is unsupported by {target.name}; skipped"
+                    f"hook event {source_event!r} in {source} is unsupported by {target.name}; skipped"
                 )
                 continue
             for raw in declarations:
@@ -190,11 +225,23 @@ def plan_hooks(
                 handlers = _handlers(raw, source, pkg, target, hooks_root, warnings)
                 if not handlers:
                     continue
-                native = (
-                    [{"matcher": matcher or "*", "hooks": handlers}]
-                    if target.is_nested(event)
-                    else handlers
-                )
+                if target.is_nested(event):
+                    if target.default_matcher is not None:
+                        matcher = matcher or target.default_matcher
+                    outer = {} if matcher is None else {"matcher": matcher}
+                    outer["hooks"] = handlers
+                    native = [outer]
+                else:
+                    native = handlers
+                    if cursor:
+                        matcher = _cursor_matcher(
+                            matcher, event, source, foreign=source_event != event
+                        )
+                        for handler in native:
+                            if matcher is not None:
+                                handler["matcher"] = matcher
+                            if source_event in {"Stop", "SubagentStop"}:
+                                handler["loop_limit"] = None
                 entries.extend(HookEntry(event, entry, pkg.marker, pkg.owner) for entry in native)
 
     files: dict[str, PlannedFile] = {}
@@ -234,9 +281,9 @@ def merge(
     """Strip previously owned entries and append the configured plan without mutating inputs."""
     owned = _owned_events(sidecar, target)
     result = dict(native)
-    key = "hooks" if target.name == "claude" else "apm"
+    key = target.hook_key
     events = _event_map(native.get(key, {}), target.hook_file)
-    if target.name == "antigravity":
+    if target.owned_container:
         if key in native and not sidecar:
             raise ApmError(
                 f"unowned apm container in {target.hook_file}",
@@ -251,7 +298,14 @@ def merge(
     else:
         remaining = {}
         for event, entries in events.items():
-            counts = Counter(json.dumps(e, sort_keys=True) for e in owned.get(event, []))
+            previous = owned.get(event, [])
+            # Our entries are appended. Prefer that suffix so equal user entries keep their order.
+            if previous and json.dumps(entries[-len(previous) :], sort_keys=True) == json.dumps(
+                previous, sort_keys=True
+            ):
+                remaining[event] = entries[: -len(previous)]
+                continue
+            counts = Counter(json.dumps(e, sort_keys=True) for e in previous)
             kept = []
             for entry in entries:
                 identity = json.dumps(entry, sort_keys=True)
@@ -271,4 +325,7 @@ def merge(
         result[key] = remaining
     else:
         result.pop(key, None)
+    if configured and planned:
+        for key, value in target.hook_defaults.items():
+            result.setdefault(key, value)
     return result, new_sidecar or None
