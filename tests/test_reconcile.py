@@ -8,6 +8,7 @@ from apm_lite.errors import ApmError
 from apm_lite.git import Git
 from apm_lite.manifest import load
 from apm_lite.model import PlannedFile
+from apm_lite.targets import TARGETS
 
 RULE = "---\napplyTo: '**/*.py'\n---\nUse black.\n"
 HOOKS = json.dumps({"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "./c.sh"}]}]})
@@ -238,25 +239,235 @@ def test_skill_subset_cleanup_prunes_nested_directories(git_server, project):
     assert not (project / ".claude/skills/a").exists()
 
 
-@pytest.mark.parametrize(
-    "rel",
-    [
-        ".claude/settings.json",
-        ".claude/apm-hooks.json",
-        ".agents/hooks.json",
-        ".agents/apm-hooks.json",
-    ],
-)
-def test_bad_hook_json_prevents_any_deployment(git_server, project, rel):
-    r, _ = _pkg_repo(git_server)
-    m = _proj(project, [r.https])
+def _bad(project, rel):
     path = project / rel
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{")
+    return path
+
+
+def _plain_repo(git_server):  # a package with a rule and no hooks
+    r = git_server.repo("t/plain")
+    r.commit(
+        {"apm.yml": "name: plain\nversion: '1'\n", ".apm/instructions/p.instructions.md": RULE}
+    )
+    return r
+
+
+@pytest.mark.parametrize("name", TARGETS)
+def test_unused_hook_file_is_never_read(git_server, project, name):  # R26
+    other = "claude" if name != "claude" else "antigravity"
+    path = _bad(project, TARGETS[name].hook_file)
+    r, _ = _pkg_repo(git_server)
+    _run(project, _proj(project, [r.https], f"[{other}]"))  # target not configured, no sidecar
+    assert path.read_text() == "{"
+    _run(project, _proj(project, [_plain_repo(git_server).https], f"[{name}]"))  # no hooks to add
+    assert path.read_text() == "{"
+    assert not (project / TARGETS[name].sidecar).exists()
+
+
+@pytest.mark.parametrize("name", TARGETS)
+@pytest.mark.parametrize("case", ["hooks_to_add", "sidecar_exists", "bad_sidecar"])
+def test_bad_hook_json_prevents_any_deployment(git_server, project, name, case):  # R26
+    target = TARGETS[name]
+    other = "claude" if name != "claude" else "antigravity"
+    r, _ = _pkg_repo(git_server)
+    if case == "hooks_to_add":
+        path, m = _bad(project, target.hook_file), _proj(project, [r.https], f"[{name}]")
+    elif case == "sidecar_exists":  # entries to strip, even from an empty sidecar
+        path, m = _bad(project, target.hook_file), _proj(project, [r.https], f"[{other}]")
+        (project / target.sidecar).write_text("{}")
+    else:
+        path, m = _bad(project, target.sidecar), _proj(project, [r.https], f"[{other}]")
     snap = _snapshot(project)
     with pytest.raises(ApmError, match=path.name):
         _run(project, m)
     assert _snapshot(project) == snap
+
+
+def test_commented_gemini_settings(git_server, project):  # R26: never rewritten
+    settings = project / ".gemini/settings.json"
+    settings.parent.mkdir()
+    text = '{\n  // mine\n  "theme": "dark"\n}\n'
+    settings.write_text(text)
+    _run(project, _proj(project, [_plain_repo(git_server).https], "[gemini]"))
+    assert settings.read_text() == text
+    r, _ = _pkg_repo(git_server)
+    snap = _snapshot(project)
+    with pytest.raises(ApmError, match=r"settings\.json") as exc:
+        _run(project, _proj(project, [r.https], "[gemini]"))
+    assert "comments" in exc.value.hint
+    snap["apm.yml"] = _snapshot(project)["apm.yml"]  # _proj rewrote the manifest itself
+    assert _snapshot(project) == snap
+
+
+def test_bad_timeout_leaves_user_codex_hooks_alone(git_server, project):  # R22a
+    r = git_server.repo("t/neg")
+    hooks = json.dumps({"Stop": [{"command": "echo x", "timeout": -1}]})
+    r.commit({"apm.yml": "name: neg\nversion: '1'\n", ".apm/hooks/hooks.json": hooks})
+    mine = project / ".codex/hooks.json"
+    mine.parent.mkdir()
+    mine.write_text('{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo me"}]}]}}')
+    m = _proj(project, [r.https], "[codex]")
+    snap = _snapshot(project)
+    with pytest.raises(ApmError, match="timeout"):
+        _run(project, m)
+    assert _snapshot(project) == snap
+
+
+def test_shared_agents_skills_folder(git_server, project):  # R21
+    r = git_server.repo("t/skills")
+    r.commit({"skills/a/SKILL.md": "---\ndescription: A.\n---\n", "skills/a/ref.md": "ref"})
+    dep = [r.https]
+    res = _run(project, _proj(project, dep, "[antigravity, codex, cursor, gemini]"))
+    files = res.lock.deps[next(iter(res.lock.deps))].deployed_files
+    assert files == [".agents/skills/a", ".agents/skills/a/SKILL.md", ".agents/skills/a/ref.md"]
+    assert not (project / ".cursor").exists() and not (project / ".codex").exists()
+    (project / ".agents/skills/a/ref.md").write_text("edited")
+    (project / ".agents/skills/a/mine.md").write_text("mine")
+    res = _run(project, _proj(project, dep, "[codex]"))  # one sharing target left: nothing moves
+    assert res.deleted == [] and (project / ".agents/skills/a/SKILL.md").exists()
+    _run(project, _proj(project, dep, "[claude]"))  # the last one is gone
+    assert (project / ".claude/skills/a/ref.md").read_text() == "ref"
+    assert not (project / ".agents/skills/a/SKILL.md").exists()
+    assert (project / ".agents/skills/a/ref.md").read_text() == "edited"
+    assert (project / ".agents/skills/a/mine.md").read_text() == "mine"
+
+
+def test_shared_skill_claimed_by_two_packages_still_fails(git_server, project):
+    a, b = git_server.repo("t/a"), git_server.repo("t/b")
+    a.commit({"skills/shared/SKILL.md": "---\ndescription: d\n---\n"})
+    b.commit({"skills/shared/SKILL.md": "---\ndescription: d\n---\n"})
+    m = _proj(project, [a.https, b.https], "[codex, cursor]")
+    snap = _snapshot(project)
+    with pytest.raises(ApmError, match=r"t/a.*t/b|t/b.*t/a"):
+        _run(project, m)
+    assert _snapshot(project) == snap
+
+
+def test_rules_warning_for_targets_without_rules(git_server, project):  # R20
+    r, _ = _pkg_repo(git_server)
+    (project / ".git").mkdir()
+    res = _run(project, _proj(project, [r.https], "[codex, cursor, gemini]"))
+    assert [w for w in res.warnings if "rules aren't deployed" in w] == [
+        "rules aren't deployed for codex, gemini: these targets read rules only "
+        "from AGENTS.md / GEMINI.md, which apm-lite doesn't write"
+    ]
+    assert (project / ".cursor/rules/style.mdc").exists()
+    assert not (project / ".codex/rules").exists() and not (project / ".gemini/rules").exists()
+    res = _run(project, _proj(project, [r.https], "[claude]"))
+    assert not any("rules aren't deployed" in w for w in res.warnings)
+
+
+def test_codex_warns_when_the_project_is_not_a_git_root(git_server, project):
+    r, _ = _pkg_repo(git_server)
+    res = _run(project, _proj(project, [r.https], "[codex]"))
+    assert any("git root" in w and "codex" in w for w in res.warnings)
+    (project / ".git").mkdir()
+    res = _run(project, _proj(project, [r.https], "[codex, claude]"))
+    assert not any("git root" in w for w in res.warnings)
+
+
+@pytest.mark.parametrize("name", ["cursor", "codex", "gemini"])
+def test_retire_new_target_keeps_user_hooks(git_server, project, name):  # R28, R29
+    target = TARGETS[name]
+    extra = {
+        ".apm/hooks/hooks.json": json.dumps(
+            {
+                "PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "./c.sh"}]}],
+                "Stop": [{"command": "echo stop"}],
+            }
+        )
+    }
+    r, _ = _pkg_repo(git_server, extra=extra)
+    (project / ".git").mkdir()
+    native = project / target.hook_file
+    native.parent.mkdir()
+    pre, stop = target.native_event("PreToolUse"), target.native_event("Stop")
+    native.write_text(json.dumps({"theme": "dark", "hooks": {stop: [{"command": "echo mine"}]}}))
+    _run(project, _proj(project, [r.https], f"[claude, {name}]"))
+    doc = json.loads(native.read_text())
+    assert (project / target.hooks_dir / "base/c.sh").exists()
+    assert (project / ".cursor/rules/style.mdc").exists() == (name == "cursor")
+    managed_pre, managed_stop = doc["hooks"][pre][-1], doc["hooks"][stop][-1]
+    edited = dict(managed_stop, note="edited by me")
+    doc["hooks"][stop][-1] = edited  # the user edits a managed entry...
+    doc["hooks"][pre].insert(0, dict(managed_pre))  # ...and copies another one
+    native.write_text(json.dumps(doc))
+    _run(project, _proj(project, [r.https], "[claude]"))
+    after = json.loads(native.read_text())
+    assert after["theme"] == "dark"
+    assert after["hooks"] == {stop: [{"command": "echo mine"}, edited], pre: [managed_pre]}
+    assert not (project / target.sidecar).exists()
+    assert not (project / target.hooks_dir / "base/c.sh").exists()
+    assert not (project / ".cursor/rules/style.mdc").exists()
+    assert (project / ".claude/rules/style.md").exists()
+
+
+@pytest.mark.parametrize("name", ["cursor", "codex", "gemini"])
+def test_fault_between_hook_file_and_sidecar_restores_both(git_server, project, monkeypatch, name):
+    r, _ = _pkg_repo(git_server)
+    (project / ".git").mkdir()
+    native = project / TARGETS[name].hook_file
+    native.parent.mkdir()
+    native.write_text('{"hooks": {}}')
+    m = _proj(project, [r.https], f"[{name}]")
+    snap = _snapshot(project)
+    real_write = rc.UndoLog.write
+
+    def write(self, rel, data, mode=0o644):
+        if rel.endswith("apm-hooks.json"):
+            assert native.read_text() != '{"hooks": {}}'  # the native file was written first
+            raise OSError("injected")
+        return real_write(self, rel, data, mode)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rc.UndoLog, "write", write)
+        with pytest.raises(OSError, match="injected"):
+            _run(project, m)
+    assert _snapshot(project) == snap
+    _run(project, m)
+    assert (project / TARGETS[name].sidecar).exists()
+
+
+def test_all_five_targets_together(git_server, project):
+    skill = {".apm/skills/s/SKILL.md": "---\ndescription: S.\n---\n"}
+    r, _ = _pkg_repo(git_server, extra=skill)
+    (project / ".git").mkdir()
+    m = _proj(project, [r.https], "[claude, antigravity, cursor, codex, gemini]")
+    res = _run(project, m)
+    rules = sorted(p.relative_to(project).as_posix() for p in project.glob(".*/rules/*"))
+    assert rules == [".agents/rules/style.md", ".claude/rules/style.md", ".cursor/rules/style.mdc"]
+    skills = sorted(p.relative_to(project).as_posix() for p in project.glob(".*/skills/s/SKILL.md"))
+    assert skills == [".agents/skills/s/SKILL.md", ".claude/skills/s/SKILL.md"]
+
+    def doc(name):
+        return json.loads((project / TARGETS[name].hook_file).read_text())
+
+    def nested(command, **extra):
+        return [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}], **extra}]
+
+    assert doc("claude") == {
+        "hooks": {"PreToolUse": nested('"${CLAUDE_PROJECT_DIR}/.claude/hooks/base/c.sh"')}
+    }
+    assert doc("antigravity") == {"apm": {"PreToolUse": nested("hooks/base/c.sh")}}
+    assert doc("cursor") == {
+        "hooks": {
+            "preToolUse": [
+                {"type": "command", "command": ".cursor/hooks/base/c.sh", "matcher": "Shell"}
+            ]
+        },
+        "version": 1,
+    }
+    assert doc("codex") == {
+        "hooks": {"PreToolUse": nested('"$(git rev-parse --show-toplevel)/.codex/hooks/base/c.sh"')}
+    }
+    assert doc("gemini") == {"hooks": {"BeforeTool": nested(".gemini/hooks/base/c.sh")}}
+    for name, target in TARGETS.items():
+        assert os.stat(project / target.hooks_dir / "base/c.sh").st_mode & 0o111, name
+    assert len([w for w in res.warnings if "rules aren't deployed" in w]) == 1
+    again = _run(project, load(project / "apm.yml", is_root=True))
+    assert again.written == [] and again.deleted == []
 
 
 def test_case_collision_and_skill_root_collision(git_server, project):
@@ -281,7 +492,7 @@ def test_case_collision_and_skill_root_collision(git_server, project):
 @pytest.mark.parametrize("rel", [".claude/rules", ".agents/hooks.json", ".gitignore"])
 def test_symlink_destination_is_rejected_before_writes(git_server, project, tmp_path, rel):
     r, _ = _pkg_repo(git_server)
-    m = _proj(project, [r.https])
+    m = _proj(project, [r.https], "[claude, antigravity]")
     outside = tmp_path / "outside"
     outside.mkdir()
     link = project / rel

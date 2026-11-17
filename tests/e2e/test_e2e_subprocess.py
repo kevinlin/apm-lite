@@ -286,6 +286,8 @@ def test_failed_install_preserves_files(apm, git_server, project, tmp_path, case
     files = {
         "apm.yml": "name: base\nversion: '1'\n",
         ".apm/instructions/base.instructions.md": "Base.\n",
+        # A hook to add, so the hook files below are read at all (R26).
+        ".apm/hooks/hooks.json": '{"Stop": [{"command": "echo base"}]}',
     }
     if case == "outside-script":
         files.update(

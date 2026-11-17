@@ -13,7 +13,7 @@ from pathlib import Path
 
 from apm_lite import __version__, lockfile
 from apm_lite.deploy.hooks import merge, plan_hooks, read_json
-from apm_lite.deploy.rules import plan_rules
+from apm_lite.deploy.rules import has_rules, plan_rules
 from apm_lite.deploy.skills import plan_skills
 from apm_lite.errors import ApmError
 from apm_lite.fs import UndoLog, check_destination
@@ -229,9 +229,13 @@ def reconcile(
     claims: dict[str, tuple[str, str, bool]] = {}
     hooks: dict[str, list[HookEntry]] = {name: [] for name in TARGETS}
     for pkg in packages:
+        skill_dirs: set[str] = set()  # targets sharing .agents/skills plan it once (design §6.3)
         for name in manifest.targets:
             target = TARGETS[name]
-            skill_files, skill_roots, skill_warnings = plan_skills(pkg, target)
+            skill_files, skill_roots, skill_warnings = (
+                ({}, {}, []) if target.skills_dir in skill_dirs else plan_skills(pkg, target)
+            )
+            skill_dirs.add(target.skills_dir)
             entries, scripts, hook_warnings = plan_hooks(pkg, target)
             for message in [*skill_warnings, *hook_warnings]:
                 notice(message)
@@ -244,11 +248,31 @@ def reconcile(
                     files[rel] = planned_file
             hooks[name].extend(entries)
 
+    no_rules = [name for name in manifest.targets if TARGETS[name].rule_ext is None]
+    if no_rules and any(has_rules(pkg) for pkg in packages):
+        notice(
+            f"rules aren't deployed for {', '.join(no_rules)}: these targets read rules only "
+            "from AGENTS.md / GEMINI.md, which apm-lite doesn't write"
+        )
+    for name in manifest.targets:
+        prefix = TARGETS[name].script_prefix
+        if (
+            "git rev-parse" in prefix
+            and not (project / ".git").exists()
+            and any(prefix in json.dumps(hook.entry) for hook in hooks[name])
+        ):
+            notice(
+                f"{name} hooks find their scripts from the git root, "
+                "but this project folder isn't one: they won't run until it is"
+            )
+
     hook_files: dict[str, bytes] = {}
     hook_deletes: list[str] = []
     for name, target in TARGETS.items():
-        native_path = check_destination(project, target.hook_file)
         sidecar_path = check_destination(project, target.sidecar)
+        if not hooks[name] and not sidecar_path.exists():
+            continue  # nothing to add or strip: the user's hook file stays unread (R26)
+        native_path = check_destination(project, target.hook_file)
         old_native, old_sidecar = read_json(native_path), read_json(sidecar_path)
         native, sidecar = merge(
             old_native, old_sidecar, hooks[name], target, configured=name in manifest.targets
