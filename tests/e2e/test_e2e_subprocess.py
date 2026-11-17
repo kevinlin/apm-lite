@@ -7,8 +7,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
 import yaml
@@ -17,24 +15,6 @@ from tests.test_compat import FIXTURES, _build
 from tests.test_reconcile import _snapshot
 
 SKILL = "---\nname: review\ndescription: Review synthetic code.\n---\nRevision "
-
-
-@pytest.fixture
-def apm(git_env, monkeypatch):
-    monkeypatch.setenv("GIT_ALLOW_PROTOCOL", "file")
-    executable = Path(sys.executable).with_name("apm")
-    assert executable.is_file(), "Install the project's console entry point first"
-
-    def run(project, *args, expected=0):
-        result = subprocess.run(
-            [str(executable), *args], cwd=project, capture_output=True, text=True, timeout=30
-        )
-        print(f"\n[{project.name}] apm {' '.join(args)} -> {result.returncode}")
-        print(result.stdout + result.stderr, end="")
-        assert result.returncode == expected, result.stdout + result.stderr
-        return result
-
-    return run
 
 
 def write_manifest(project, deps, targets=None):
