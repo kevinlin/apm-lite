@@ -1,6 +1,6 @@
 import pytest
 
-from apm_lite.deploy.rules import plan_rules, render_rule, split_apply_to
+from apm_lite.deploy.rules import has_rules, plan_rules, render_rule, split_apply_to
 from apm_lite.errors import ApmError
 from apm_lite.model import DepSpec, ResolvedPackage
 from apm_lite.targets import TARGETS
@@ -77,8 +77,86 @@ def test_globs_are_json_quoted_and_ascii():
 
 
 def test_unknown_target_rejected():
-    with pytest.raises(ValueError, match="cursor"):
-        render_rule(SRC, "cursor")
+    with pytest.raises(ValueError, match="copilot"):
+        render_rule(SRC, "copilot")
+
+
+@pytest.mark.parametrize("target", ["codex", "gemini"])
+def test_targets_without_a_rule_format_are_rejected(target):
+    with pytest.raises(ValueError, match=target):
+        render_rule(SRC, target)
+
+
+def test_cursor_scoped_with_description():
+    src = '---\napplyTo: "**/*.py"\ndescription: Python style\n---\nUse hints.\n'
+    assert render_rule(src, "cursor") == (
+        '---\ndescription: "Python style"\nglobs: **/*.py\nalwaysApply: false\n---\n\nUse hints.\n'
+    )
+
+
+def test_cursor_globs_are_one_comma_joined_scalar_without_description():
+    src = '---\napplyTo: "a/**/*.py, b/{x,y}/*.ts"\n---\nBody\n'
+    assert render_rule(src, "cursor") == (
+        "---\nglobs: a/**/*.py, b/{x,y}/*.ts\nalwaysApply: false\n---\n\nBody\n"
+    )
+
+
+def test_cursor_without_frontmatter_is_always_apply():
+    assert render_rule("Just text.\n", "cursor") == "---\nalwaysApply: true\n---\n\nJust text.\n"
+
+
+def test_cursor_unscoped_keeps_description():
+    src = "---\ndescription: Always on\n---\nAlways.\n"
+    assert render_rule(src, "cursor") == (
+        '---\ndescription: "Always on"\nalwaysApply: true\n---\n\nAlways.\n'
+    )
+
+
+def test_cursor_description_is_json_quoted():
+    src = "---\napplyTo: a/**\ndescription: 'say \"hi\" é'\n---\nB\n"
+    assert render_rule(src, "cursor") == (
+        '---\ndescription: "say \\"hi\\" \\u00e9"\nglobs: a/**\nalwaysApply: false\n---\n\nB\n'
+    )
+
+
+@pytest.mark.parametrize("description", ['""', "3", "[a, b]", "null"])
+def test_cursor_omits_empty_or_non_string_description(description):
+    src = f"---\napplyTo: a/**\ndescription: {description}\n---\nB\n"
+    assert render_rule(src, "cursor") == "---\nglobs: a/**\nalwaysApply: false\n---\n\nB\n"
+
+
+def test_cursor_crlf_source_same_as_lf():
+    assert render_rule(SRC.replace("\n", "\r\n"), "cursor") == render_rule(SRC, "cursor")
+
+
+def test_cursor_drops_other_frontmatter_and_keeps_one_trailing_newline():
+    src = "---\napplyTo: a/**\nalwaysApply: true\nextra: x\n---\n\n\nBody\n\n\n"
+    assert render_rule(src, "cursor") == "---\nglobs: a/**\nalwaysApply: false\n---\n\nBody\n"
+
+
+@pytest.mark.parametrize("glob", ["a\\nb/**", "a\\tb/**", "a\\u001bb/**", "a\\u007fb/**"])
+def test_cursor_rejects_a_control_character_in_a_glob(glob):
+    with pytest.raises(ApmError, match="control character"):
+        render_rule(f'---\napplyTo: "{glob}"\n---\nB\n', "cursor")
+
+
+def test_cursor_rejects_a_top_level_comma_inside_one_glob():
+    src = "---\napplyTo: ['src/foo,bar/*.py', 'tests/**']\n---\nB\n"
+    with pytest.raises(ApmError, match="comma"):
+        render_rule(src, "cursor")
+
+
+def test_cursor_accepts_a_comma_inside_braces_in_a_list_item():
+    src = "---\napplyTo: ['a/{x,y}/*.ts']\n---\nB\n"
+    assert render_rule(src, "cursor") == "---\nglobs: a/{x,y}/*.ts\nalwaysApply: false\n---\n\nB\n"
+
+
+def test_claude_and_antigravity_do_not_apply_the_cursor_glob_checks():
+    src = "---\napplyTo: ['src/foo,bar/*.py']\n---\nB\n"
+    assert render_rule(src, "claude") == '---\npaths:\n  - "src/foo,bar/*.py"\n---\n\nB\n'
+    assert render_rule(src, "antigravity") == (
+        '---\ntrigger: glob\nglobs: "src/foo,bar/*.py"\n---\n\nB\n'
+    )
 
 
 def _pkg(tmp_path, ptype="apm_package", depth=1):
@@ -119,6 +197,30 @@ def test_plan_rules_apm_package(tmp_path):
     agy = plan_rules(pkg, TARGETS["antigravity"])
     assert set(agy) == {".agents/rules/style.md"}
     assert agy[".agents/rules/style.md"].content == render_rule(SRC, "antigravity").encode()
+
+
+def test_plan_rules_cursor_writes_mdc(tmp_path):
+    _w(tmp_path, ".apm/instructions/x.instructions.md", SRC)
+    files = plan_rules(_pkg(tmp_path), TARGETS["cursor"])
+    assert set(files) == {".cursor/rules/x.mdc"}
+    planned = files[".cursor/rules/x.mdc"]
+    assert planned.content == render_rule(SRC, "cursor").encode()
+    assert planned.mode == 0o644
+    assert planned.owner == "git.test/team/pkg"
+
+
+@pytest.mark.parametrize("target", ["codex", "gemini"])
+def test_plan_rules_deploys_nothing_for_targets_without_rules(tmp_path, target):
+    _w(tmp_path, ".apm/instructions/x.instructions.md", SRC)
+    assert plan_rules(_pkg(tmp_path), TARGETS[target]) == {}
+
+
+def test_plan_rules_cursor_glob_error_names_the_file(tmp_path):
+    bad = "---\napplyTo: ['src/foo,bar/*.py']\n---\nB\n"
+    _w(tmp_path, ".apm/instructions/bad.instructions.md", bad)
+    with pytest.raises(ApmError, match=r"bad\.instructions\.md") as caught:
+        plan_rules(_pkg(tmp_path), TARGETS["cursor"])
+    assert "comma" in caught.value.message
 
 
 def test_plan_rules_root_project_whatever_its_type(tmp_path):
@@ -190,3 +292,56 @@ def test_symlinked_apm_folder_is_not_followed(tmp_path):  # R21/R30: no files fr
         content_hash=None,
     )
     assert plan_rules(pkg, TARGETS["claude"]) == {}
+
+
+def test_has_rules_true_for_an_apm_package_with_a_rule(tmp_path):
+    _w(tmp_path, ".apm/instructions/style.instructions.md", SRC)
+    assert has_rules(_pkg(tmp_path)) is True
+
+
+def test_has_rules_true_for_the_root_project_whatever_its_type(tmp_path):
+    _w(tmp_path, ".apm/instructions/mine.instructions.md", SRC)
+    assert has_rules(_pkg(tmp_path, "claude_skill", depth=0)) is True
+
+
+def test_has_rules_false_without_an_instructions_dir(tmp_path):
+    assert has_rules(_pkg(tmp_path)) is False
+
+
+def test_has_rules_false_for_an_empty_instructions_dir(tmp_path):
+    (tmp_path / ".apm/instructions").mkdir(parents=True)
+    assert has_rules(_pkg(tmp_path)) is False
+
+
+def test_has_rules_ignores_files_that_are_not_rule_sources(tmp_path):
+    _w(tmp_path, ".apm/instructions/notes.md", "not a rule")
+    _w(tmp_path, ".apm/instructions/sub/deep.instructions.md", SRC)
+    assert has_rules(_pkg(tmp_path)) is False
+
+
+@pytest.mark.parametrize("ptype", ["claude_skill", "hybrid", "skill_bundle"])
+def test_has_rules_false_for_a_non_apm_package_shape(tmp_path, ptype):
+    _w(tmp_path, ".apm/instructions/style.instructions.md", SRC)
+    assert has_rules(_pkg(tmp_path, ptype)) is False
+
+
+def test_has_rules_false_for_a_symlinked_rule_source(tmp_path):
+    outside = _w(tmp_path / "elsewhere", "secret.txt", "secret")
+    link = tmp_path / ".apm/instructions/leak.instructions.md"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(outside)
+    assert has_rules(_pkg(tmp_path)) is False
+
+
+def test_has_rules_false_for_a_symlinked_instructions_folder(tmp_path):
+    outside = tmp_path / "outside"
+    _w(outside, "secret.instructions.md", "from outside")
+    pkg_dir = tmp_path / "pkg"
+    (pkg_dir / ".apm").mkdir(parents=True)
+    (pkg_dir / ".apm/instructions").symlink_to(outside)
+    assert has_rules(_pkg(pkg_dir)) is False
+
+
+def test_has_rules_does_not_validate_names_or_content(tmp_path):
+    _w(tmp_path, ".apm/instructions/bad name.instructions.md", "---\napplyTo: [unclosed\n---\n")
+    assert has_rules(_pkg(tmp_path)) is True
