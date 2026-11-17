@@ -1,12 +1,12 @@
 # apm-lite: requirements
 
 - Date: 2026-10-10
-- Status: revised after spec review rounds 1–2 (consensus)
-- Companion: [design spec](2026-10-10-apm-lite-design.md)
+- Status: revised after spec review rounds 1–2 (consensus); amended 2026-11-17 for 0.2.0 (targets `cursor`, `codex`, `gemini`)
+- Companion: [design spec](design_apm-lite.md)
 
 ## Purpose
 
-apm-lite is a cut-down fork of APM (Agent Package Manager) v0.33.0, for corporate use only. A developer declares the agent context a project needs (rules, skills, hooks) in `apm.yml`. `apm install` pulls those packages from internal Git servers or local paths and deploys them for Claude Code and, optionally, Antigravity CLI. A lockfile makes the result reproducible.
+apm-lite is a cut-down fork of APM (Agent Package Manager) v0.33.0, for corporate use only. A developer declares the agent context a project needs (rules, skills, hooks) in `apm.yml`. `apm install` pulls those packages from internal Git servers or local paths and deploys them for Claude Code and, optionally, Antigravity CLI, Cursor, Codex CLI and Gemini CLI. A lockfile makes the result reproducible.
 
 The fork is owned outright. Nothing is merged back from upstream. Upstream's file formats are kept so packages and manifests can still move between the two tools.
 
@@ -17,7 +17,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 
 ## Success criteria
 
-- Two developers with the same `apm.yml`, `apm.lock.yaml`, project `.apm/` content and local package content who run `apm install` get byte-identical managed files under `.claude/` and `.agents/`. This excludes files kept as user edits (R29). Files and hook entries the user added are left as they were.
+- Two developers with the same `apm.yml`, `apm.lock.yaml`, project `.apm/` content and local package content who run `apm install` get byte-identical managed files under the target folders (`.claude/`, `.agents/`, `.cursor/`, `.codex/`, `.gemini/`). This excludes files kept as user edits (R29). Files and hook entries the user added are left as they were.
 - apm-lite opens no network connections itself. All network access goes through `git` subprocesses for URLs taken from `apm.yml` files, after git's own config (for example `insteadOf`) is applied.
 - An `apm.yml` and `apm.lock.yaml` written by apm-lite match golden fixtures that upstream APM 0.33.0's reader accepts (§ design 9).
 - Source size target: about 3k non-blank lines in `src/apm_lite/` (`grep -cv '^\s*$'`). A target, not an acceptance gate.
@@ -27,7 +27,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 ### In
 
 - Sources: internal Git over `https://`, `ssh://` and scp-style `git@host:path`; local paths in the root `apm.yml`.
-- Targets: Claude Code (default) and Antigravity CLI (opt-in).
+- Targets: Claude Code (default); Antigravity CLI, Cursor, Codex CLI and Gemini CLI (opt-in).
 - Primitives: rules (APM "instructions"), skills, hooks.
 - Package shapes: APM package (`apm.yml` + `.apm/`), bare skill repo (root `SKILL.md`), skill collection (`skills/*/SKILL.md`) with optional subset.
 - Transitive remote dependencies, lockfile with pinned commits, content-hash check.
@@ -43,11 +43,12 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 - Subdirectory packages (`git:` + `path:`), single-file packages, aliases, per-dependency `targets:`.
 - Local paths declared by any package other than the root project.
 - Semver ranges on refs.
-- A `--target` override flag.
+- A `--target` override flag, and detecting targets from folders that exist in the project.
+- Compiled instruction files (`AGENTS.md`, `GEMINI.md`). Codex and Gemini read rules only from those, so they get no rules (R20).
 - Token handling and auth helpers (git does all auth).
 - `compile`, `audit`, `policy`, `approve`/`deny`, `pack`/`publish`, `run`/`scripts`/`runtime`, `self-update`, `outdated`, `prune`, `view`, `find`, `doctor`, `config`, `cache`, `mcp`, `marketplace`, `lifecycle`, `experimental`.
 - Org policy (`apm-policy.yml`), hidden-Unicode scan, executable approval.
-- User scope (`-g`), Windows, every harness other than Claude Code and Antigravity.
+- User scope (`-g`), Windows, every harness other than Claude Code, Antigravity, Cursor, Codex and Gemini.
 - Public CI, release pipeline, Homebrew/PyPI/curl installers, docs website.
 
 ## Functional requirements
@@ -55,7 +56,7 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 ### Manifest
 
 - **R1.** `apm.yml` must have `name` and `version`, each a string that isn't empty or whitespace. Optional: `description`, `author`, `license`, `targets`, `dependencies.apm`.
-- **R2.** `targets` is a list containing only `claude` and/or `antigravity`. If absent, the target is `[claude]`. An empty list, an unknown name, or the `target:` singular key is an error with a hint.
+- **R2.** `targets` is a list containing only `claude`, `antigravity`, `cursor`, `codex` and/or `gemini`. If absent, the target is `[claude]`. An empty list, an unknown name, or the `target:` singular key is an error with a hint.
 - **R3.** Any other top-level key, and any `dependencies` key other than `apm`, is ignored with one warning per key and kept unchanged when apm-lite saves the file. This applies to the root manifest and to every dependency's manifest.
 - **R4.** A dependency entry is one of:
   - an `https://`, `ssh://` or `git@host:path` URL, optionally ending in `#<ref>`;
@@ -102,24 +103,30 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 
 ### Deployment
 
-- **R20.** Rules deploy to `.claude/rules/<name>.md` and/or `.agents/rules/<name>.md`, with `applyTo` translated to each target's native frontmatter. A rule without `applyTo` is always active on both targets.
-- **R21.** Skills deploy to `.claude/skills/<name>/` and/or `.agents/skills/<name>/`. `.git`, `.apm/` and symlinks are not copied. A single-skill package's name is normalised to lowercase hyphen-case, as upstream does.
-- **R22.** Hooks merge into `.claude/settings.json` (key `hooks`) and/or `.agents/hooks.json` (entry `apm`), leaving everything else in those files untouched. A package's `.apm/hooks/` folder is copied into the target folder with file modes kept, and commands are rewritten to the copies. A command that references a script outside `.apm/hooks/` is an error.
-- **R23.** A package may ship `hooks-claude.json` and/or `hooks-antigravity.json`. If one exists, it replaces the package's other hook files for that target.
-- **R24.** A hook event that a target doesn't support is skipped for that target with a warning: for Antigravity, anything other than `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`; for Claude, `PreInvocation` and `PostInvocation`.
+- **R20.** Rules deploy to `.claude/rules/<name>.md`, `.agents/rules/<name>.md` (Antigravity) and `.cursor/rules/<name>.mdc`, with `applyTo` translated to each target's native frontmatter. A rule without `applyTo` is always active on those three targets. Codex and Gemini have no per-file rule format: they get no rules, and an install that has rules to deploy warns once, naming those targets.
+- **R21.** Skills deploy to `.claude/skills/<name>/` for Claude and to `.agents/skills/<name>/` for every other target. The shared folder is written once however many of those targets are configured, and stays while at least one of them is. `.git`, `.apm/` and symlinks are not copied. A single-skill package's name is normalised to lowercase hyphen-case, as upstream does.
+- **R22.** Hooks merge into each configured target's hook file, leaving everything else in the file untouched: `.claude/settings.json` (key `hooks`), `.agents/hooks.json` (entry `apm`), `.cursor/hooks.json` (key `hooks`, plus `version: 1` if the file has no `version`), `.codex/hooks.json` (key `hooks`) and `.gemini/settings.json` (key `hooks`). A package's `.apm/hooks/` folder is copied into the target's own folder (`<root>/hooks/<pkg>/`) with file modes kept, and commands are rewritten to the copies. A command that references a script outside `.apm/hooks/` is an error.
+- **R22a.** A hook `timeout` is a positive integer number of seconds. Anything else is an error. (Codex rejects its whole hook file, the user's own hooks included, on a negative timeout.)
+- **R23.** A package may ship `hooks-<target>.json` for any of the five targets. If one exists, it replaces the package's other hook files for that target. It uses the same source grammar as any hook file (timeouts in seconds), with that target's own event names and matchers.
+- **R24.** Hook events are translated to the target's names where it has an equivalent (Cursor: `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SubagentStop`, `SessionStart`, `SessionEnd`, `PreCompact` become Cursor's camelCase events; Gemini: `PreToolUse`, `PostToolUse` and `Stop` become `BeforeTool`, `AfterTool` and `SessionEnd`). An event that a target doesn't support is skipped for that target with a warning:
+  - Antigravity: anything other than `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`;
+  - Claude and Gemini: `PreInvocation` and `PostInvocation`;
+  - Cursor: anything that is neither translated nor one of Cursor's own event names;
+  - Codex: anything that isn't one of Codex's own event names.
+- **R24a.** On Cursor, a tool matcher on a translated `PreToolUse` or `PostToolUse` hook is translated to Cursor's tool names. A matcher that has no exact Cursor equivalent is an error with a hint to ship `hooks-cursor.json`. Other targets get the matcher as written.
 - **R25.** Before writing a path, apm-lite checks it:
   - two sources planning the same path (compared case-insensitively) is an error naming both;
   - an existing untracked file with different content is an error telling the user to move it; identical content is adopted;
   - an existing tracked file whose content no longer matches its recorded hash was edited by the user: it is kept, with a warning, and not overwritten;
   - a file whose bytes and executable bit already equal the planned output counts as managed output, whoever wrote it.
-- **R26.** Malformed JSON in `.claude/settings.json`, `.agents/hooks.json` or an ownership sidecar is an error before any file is written. So is an `apm` entry in `.agents/hooks.json` that apm-lite doesn't own.
+- **R26.** Malformed JSON in a hook file apm-lite has to change, or in an ownership sidecar, is an error before any file is written. apm-lite reads a target's hook file only when it has entries to add there (the target is configured and a package ships hooks for it) or entries to strip (the target's sidecar exists). Otherwise the file is never read or written. A hook file for a target the project doesn't use can't fail an install, and neither can a Gemini `settings.json` with comments when no package ships hooks. apm-lite can't keep comments, so a commented `settings.json` that it would have to change is an error with a hint, and the file is left as it was. An `apm` entry in `.agents/hooks.json` that apm-lite doesn't own is also an error when that file is read.
 - **R27.** `apm_modules/` is added to `.gitignore` if missing.
 
 ### Cleanup
 
 - **R28.** Every install, update and uninstall removes files the previous lockfile tracked that are no longer planned, including all files of a target removed from `targets:` and its hook entries.
 - **R29.** A tracked file whose current hash differs from the recorded hash is kept, with a warning.
-- **R30.** apm-lite only writes or deletes inside the project, under `.claude/`, `.agents/` and `apm_modules/`, plus `apm.yml`, `apm.lock.yaml` and `.gitignore` at the root. A destination whose path passes through a symlink, or resolves outside those roots, is an error.
+- **R30.** apm-lite only writes or deletes inside the project, under `.claude/`, `.agents/`, `.cursor/`, `.codex/`, `.gemini/` and `apm_modules/`, plus `apm.yml`, `apm.lock.yaml` and `.gitignore` at the root. A destination whose path passes through a symlink, or resolves outside those roots, is an error.
 - **R31.** `apm_modules/` entries for packages no longer in the tree are deleted.
 
 ### Commands
@@ -149,5 +156,8 @@ The fork is owned outright. Nothing is merged back from upstream. Upstream's fil
 - Internal Git servers allow shallow clones. Fetching by commit SHA may not be allowed; a full-clone fallback covers commits reachable from advertised refs.
 - Teams release packages by tagging commits.
 - Antigravity CLI reads `.agents/rules/*.md`, `.agents/skills/*/SKILL.md` and `.agents/hooks.json` at project scope, as its docs state ([rules](https://www.antigravity.google/docs/rules), [skills](https://www.antigravity.google/docs/skills), [hooks](https://www.antigravity.google/docs/hooks)).
+- Cursor reads `.cursor/rules/*.mdc`, `.agents/skills/*/SKILL.md` and `.cursor/hooks.json`, and runs project hooks from the project root ([rules](https://cursor.com/docs/rules), [hooks](https://cursor.com/docs/hooks)).
+- Codex CLI reads `.agents/skills/*/SKILL.md` and `.codex/hooks.json`. Codex runs hook commands from the session's working directory, so deployed commands resolve scripts from the git root, as the [Codex hooks docs](https://learn.chatgpt.com/docs/hooks) recommend. That needs the project folder to be the root of its git repository. Gemini CLI reads `.agents/skills/*/SKILL.md` and the `hooks` key of `.gemini/settings.json`, with timeouts in milliseconds, and runs hook commands from the session's working directory ([hooks](https://github.com/google-gemini/gemini-cli/blob/main/docs/hooks/index.md)). Gemini isn't checked against a live CLI (design §11).
+- A project that targets both `claude` and `cursor` may have Cursor's own "import Claude hooks" setting on. Cursor would then run a package's hooks twice. apm-lite doesn't detect this; the authoring guide says to turn the import off.
 - The `apm` command clashing with an upstream `apm` on PATH is acceptable; the README documents it.
 - If a team later switches a project to upstream APM, upstream rewrites deployed Antigravity rules into its own frontmatter style. That's upstream behaviour, not an apm-lite compatibility break.

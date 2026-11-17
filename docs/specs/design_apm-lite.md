@@ -1,8 +1,8 @@
 # apm-lite: design
 
 - Date: 2026-10-10
-- Status: revised after spec review rounds 1–2, consensus reached (see §13)
-- Implements: [requirements](2026-10-10-apm-lite-requirements.md) (R1–R38, N1–N9)
+- Status: revised after spec review rounds 1–2, consensus reached (see §13); amended 2026-11-17 for 0.2.0 (targets `cursor`, `codex`, `gemini`, §13 round 3)
+- Implements: [requirements](requirements_apm-lite.md) (R1–R38, N1–N9)
 - Upstream reference: APM v0.33.0, commit `280b8a7b` on this repo's `main`. File references like `deps/lockfile.py:351` are relative to upstream `src/apm_cli/` at that commit.
 
 ## 1. Approach
@@ -27,7 +27,7 @@ cli ──> manifest.load(apm.yml) ──> resolver.resolve(manifest, old_lock, 
                      reconcile.plan(packages, targets, old_lock) ──> Plan
                                         │  uses deploy/rules, skills, hooks
                                         v
-                     reconcile.apply(plan) ──> .claude/, .agents/
+                     reconcile.apply(plan) ──> target folders (§6.1)
                                         │
                      reconcile.commit ──> apm.yml + apm.lock.yaml
 ```
@@ -43,7 +43,7 @@ cli ──> manifest.load(apm.yml) ──> resolver.resolve(manifest, old_lock, 
 | `packages.py` | Put a remote package into `apm_modules/` (reuse or fetch), classify a package's shape, list its primitives | git.py, fs.py |
 | `resolver.py` | Breadth-first walk, pins, immutable-conflict check, subsets, cycles, depth, frozen checks | packages.py, refs.py |
 | `lockfile.py` | Read and write the lockfile subset; `content_hash(dir)`, `file_hash(bytes)` | PyYAML |
-| `targets.py` | The two `Target` definitions: root folder, rules dir, skills dir, hook file, sidecar, supported events | — |
+| `targets.py` | The five `Target` definitions: root folder, rules dir and extension, skills dir, hook file and key, sidecar, event map, supported events, command prefix | — |
 | `deploy/rules.py` | Rule files to write per target | python-frontmatter |
 | `deploy/skills.py` | Skill files to write per target | python-frontmatter |
 | `deploy/hooks.py` | Hook entries and script files per target; merge into and strip from native hook files | — |
@@ -63,7 +63,7 @@ Core types (dataclasses):
 ### 3.1 `apm.yml`
 
 - Required: `name` and `version`, both strings with non-whitespace content. An unquoted `version: 1.0` is a float and fails, matching upstream (`models/apm_package.py:470-477`).
-- `targets`: a list, subset of `{claude, antigravity}`. Absent means `[claude]`. `target:` (singular) is rejected with a hint to use `targets:`.
+- `targets`: a list, subset of `{claude, antigravity, cursor, codex, gemini}` (the keys of `targets.TARGETS`, so the two can't drift). Absent means `[claude]`. `target:` (singular) is rejected with a hint to use `targets:`.
 - `dependencies.apm`: a list.
 - Ignored with a warning and kept unchanged on save: other top-level keys and other `dependencies` keys. apm-lite never adds them. If such a key is invalid for upstream, it was already invalid before apm-lite touched the file.
 
@@ -240,15 +240,21 @@ local_deployed_file_hashes: {...}
 
 ### 6.1 Targets
 
-| | Claude | Antigravity |
-|---|---|---|
-| root | `.claude/` | `.agents/` |
-| rules | `.claude/rules/<name>.md` | `.agents/rules/<name>.md` |
-| skills | `.claude/skills/<name>/` | `.agents/skills/<name>/` |
-| hook config | `.claude/settings.json`, key `hooks` | `.agents/hooks.json`, key `apm` |
-| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` (commands reference `hooks/<pkg>/…`, since the hook cwd is `.agents/`) |
-| hook ownership sidecar | `.claude/apm-hooks.json` | `.agents/apm-hooks.json` |
-| events skipped (R24) | `PreInvocation`, `PostInvocation` | anything except `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop` |
+| | Claude | Antigravity | Cursor | Codex | Gemini |
+|---|---|---|---|---|---|
+| name in `targets:` | `claude` | `antigravity` | `cursor` | `codex` | `gemini` |
+| root | `.claude/` | `.agents/` | `.cursor/` | `.codex/` | `.gemini/` |
+| rules | `.claude/rules/<name>.md` | `.agents/rules/<name>.md` | `.cursor/rules/<name>.mdc` | none | none |
+| skills | `.claude/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` | `.agents/skills/<name>/` |
+| hook config | `.claude/settings.json`, key `hooks` | `.agents/hooks.json`, key `apm` | `.cursor/hooks.json`, key `hooks`, `version: 1` | `.codex/hooks.json`, key `hooks` | `.gemini/settings.json`, key `hooks` |
+| hook scripts | `.claude/hooks/<pkg>/` | `.agents/hooks/<pkg>/` | `.cursor/hooks/<pkg>/` | `.codex/hooks/<pkg>/` | `.gemini/hooks/<pkg>/` |
+| command prefix | `"${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/…"`, double-quoted | `hooks/<pkg>/…` (hook cwd is `.agents/`) | `.cursor/hooks/<pkg>/…` (hook cwd is the project root) | `"$(git rev-parse --show-toplevel)/.codex/hooks/<pkg>/…"`, double-quoted (hook cwd is the session cwd) | `.gemini/hooks/<pkg>/…` (hook cwd is the session cwd) |
+| hook ownership sidecar | `.claude/apm-hooks.json` | `.agents/apm-hooks.json` | `.cursor/apm-hooks.json` | `.codex/apm-hooks.json` | `.gemini/apm-hooks.json` |
+| event names | as written | as written | 8 events translated to camelCase (§6.4) | as written | 3 events translated (§6.4) |
+| events skipped (R24) | `PreInvocation`, `PostInvocation` | anything except `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop` | anything that isn't a Cursor event after translation | anything that isn't a Codex event | `PreInvocation`, `PostInvocation` |
+| timeout unit written | seconds | seconds | seconds | seconds | milliseconds |
+
+All of this is data on the `Target` record in `targets.py`. The deploy modules read it and don't branch on the target's name, except for the rule format (§6.2) and the Cursor matcher table (§6.4).
 
 Target folders are created when needed, through `fs.check_destination`.
 
@@ -262,6 +268,17 @@ Target folders are created when needed, through `fs.check_destination`.
 | set | `---\npaths:\n  - "<glob>"\n---\n\n<body>`, one list item per glob, each JSON-quoted | `---\ntrigger: glob\nglobs: "<g1>,<g2>"\n---\n\n<body>` |
 | not set | `<body>` only; Claude loads rules without `paths` unconditionally | `---\ntrigger: always_on\n---\n\n<body>` |
 
+- Cursor output (`.cursor/rules/<name>.mdc`), ported from upstream `integration/instruction_integrator.py` `_convert_to_cursor_rules`:
+
+| `applyTo` | Cursor output |
+|---|---|
+| set | `---\n[description: <d>\n]globs: <g1>, <g2>\nalwaysApply: false\n---\n\n<body>` |
+| not set | `---\n[description: <d>\n]alwaysApply: true\n---\n\n<body>` |
+
+  - `globs` is one bare comma-joined scalar, never a YAML list (upstream issue #3002: Cursor doesn't read the list form). Upstream double-quotes the scalar when it holds a control character and backslash-escapes a literal top-level comma inside one glob (`utils/patterns.py:162-228`). apm-lite rejects both instead, with an `ApmError` naming the rule: Cursor's handling of either form isn't documented, and a silently wrong glob is worse than a refused one. "Top-level comma" means one outside `{}` and `[]`, which can only come from a YAML-list `applyTo` item.
+  - `description` is the source frontmatter's `description`, if it is a non-empty string, written as a JSON-quoted scalar. It's omitted otherwise. Upstream's fallback (first body line) isn't ported.
+  - `alwaysApply` is always written. Upstream never writes it, so a rule without `applyTo` would be "agent requested" in Cursor and R20 wouldn't hold. This follows the [Cursor rules docs](https://cursor.com/docs/rules).
+- Codex and Gemini have no rules. `plan_rules` returns nothing for them. `reconcile` warns once per command when any package has a rule and such a target is configured: `rules aren't deployed for codex, gemini: these targets read rules only from AGENTS.md / GEMINI.md, which apm-lite doesn't write`.
 - All other source frontmatter keys are dropped.
 - Antigravity output differs from upstream in two places, both following the [Antigravity rules docs](https://www.antigravity.google/docs/rules):
   - `globs` is one comma-separated string where upstream writes a YAML list.
@@ -269,6 +286,7 @@ Target folders are created when needed, through `fs.check_destination`.
 
 ### 6.3 Skills (R21, R12)
 
+- `<skills>` is `.claude/skills` for Claude and `.agents/skills` for the other four targets, as upstream deploys them (`integration/targets.py`, `deploy_root=".agents"`). `reconcile` plans skills once per distinct `<skills>` folder per package, so configuring several of the four doesn't plan the same path twice. The files stay tracked while any of the four is configured.
 - Single-skill package: copy `source_dir` to `<skills>/<name>/`. `<name>` is `to_hyphen_case` of the last segment of `repo_path` or of the local path, ported from upstream `integration/skill_integrator.py:99`.
 - Collection: copy each selected `skills/<n>/` to `<skills>/<n>/`.
 - APM package: copy each `.apm/skills/<n>/` to `<skills>/<n>/`.
@@ -285,7 +303,7 @@ Source selection, per package and target:
 Source grammar:
 - The file is either `{"hooks": {Event: [entries]}}` or a naked `{Event: [entries]}`.
 - An entry is nested `{matcher, hooks: [handler]}` or flat `handler`.
-- A handler is `{type?: "command", command: str, timeout?: int}`. A handler without `command` is skipped with a warning.
+- A handler is `{type?: "command", command: str, timeout?: int}`. A handler without `command` is skipped with a warning. `timeout` is seconds and must be a positive integer (not a bool); anything else is an `ApmError` naming the file (R22a).
 - Malformed source JSON is an `ApmError` naming the file.
 
 Scripts:
@@ -299,19 +317,35 @@ Scripts:
 - Command rewrite (ported from `integration/hook_integrator.py:576-599`):
   - Claude: `${CLAUDE_PROJECT_DIR}/.claude/hooks/<pkg>/<rel>`, always in double quotes. An unquoted or double-quoted token gets double quotes. A single-quoted token has its single quotes replaced by double quotes, because the shell doesn't expand variables inside single quotes. A path with `$`, a backtick or `"` is an `ApmError`.
   - Antigravity: `hooks/<pkg>/<rel>`, relative to `.agents/`. `agy` runs hooks with `.agents/` as the working directory, not the project root (checked with `agy` 1.3.3, §11). Upstream's `.agents/hooks/<pkg>/<rel>` fails with "No such file or directory".
+  - Cursor: `.cursor/hooks/<pkg>/<rel>`, relative to the project root, with the source token's quoting kept. This is upstream's form, and Cursor runs project hooks from the project root.
+  - Codex: `$(git rev-parse --show-toplevel)/.codex/hooks/<pkg>/<rel>`, always in double quotes, with the same quoting rules as Claude. Upstream writes `.codex/hooks/<pkg>/<rel>`, but Codex runs hooks from the session's working directory, so that path breaks when Codex is started in a subfolder; the Codex docs recommend the git-root form. It needs the project folder to be the git root. `reconcile` warns when `codex` is configured, a deployed Codex command was rewritten, and the project folder has no `.git`.
+  - Gemini: `.gemini/hooks/<pkg>/<rel>`, with the source token's quoting kept. This is upstream's form. Gemini runs hooks from the session's working directory and its `$GEMINI_PROJECT_DIR` is that same directory (substituted into the command text already shell-escaped, so it can't sit inside quotes), so the variable would add nothing. Hooks resolve when Gemini is started in the project folder.
+
+Events. The source event is first translated with the target's event map, then checked against the target's supported events (§6.1). The translated name is what's written and what the sidecar is keyed by.
+- Cursor map (upstream `_HOOK_EVENT_MAP["cursor"]`): `PreToolUse→preToolUse`, `PostToolUse→postToolUse`, `UserPromptSubmit→beforeSubmitPrompt`, `Stop→stop`, `SubagentStop→subagentStop`, `SessionStart→sessionStart`, `SessionEnd→sessionEnd`, `PreCompact→preCompact`. Supported after translation: upstream's `CURSOR_NATIVE_EVENTS` (`sessionStart`, `sessionEnd`, `preToolUse`, `postToolUse`, `postToolUseFailure`, `subagentStart`, `subagentStop`, `beforeShellExecution`, `afterShellExecution`, `beforeMCPExecution`, `afterMCPExecution`, `beforeReadFile`, `afterFileEdit`, `beforeSubmitPrompt`, `preCompact`, `stop`, `afterAgentResponse`, `afterAgentThought`, `beforeTabFileRead`, `afterTabFileEdit`, `workspaceOpen`). Upstream raises on anything else; apm-lite skips with a warning, as R24 does for the other targets.
+- Gemini map (upstream `_HOOK_EVENT_MAP["gemini"]`): `PreToolUse→BeforeTool`, `PostToolUse→AfterTool`, `Stop→SessionEnd`, plus upstream's camelCase aliases `preToolUse→BeforeTool` and `postToolUse→AfterTool`. Other events pass through, minus the skipped ones.
+- Codex: no map. Supported: the events in Codex's `HookEventsToml` (`PreModelRequest`, `PostModelRequest`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `SubagentStart`, `SubagentStop`, `Stop`, `Interrupt`). Upstream passes every name through; apm-lite skips unknown ones so a Claude-only event can't make Codex reject the file.
 
 Native entry shapes:
 - Claude: always nested: `{"matcher": <matcher or "*">, "hooks": [{"type": "command", "command": ..., "timeout": ...}]}`. Event names pass through, except the skipped ones (§6.1).
 - Antigravity:
   - `PreToolUse` and `PostToolUse` are nested, as for Claude.
   - `PreInvocation`, `PostInvocation` and `Stop` are flat lists of handlers.
+- Codex and Gemini: always nested, with no default matcher: `{"matcher": <matcher>, "hooks": [...]}` when the source has a matcher, `{"hooks": [...]}` when it doesn't (upstream `_render_nested_document`). The matcher is written as the source has it. Gemini's `timeout` is the source value × 1000.
+- Cursor: always flat, one entry per handler: `{"type": "command", "command": ..., "timeout": ..., "matcher": ...}`, keys in that order, `timeout` and `matcher` only when set. An entry whose source event was `Stop` or `SubagentStop` also gets `"loop_limit": null`, as upstream writes it.
+  - Matcher, ported from upstream `integration/hook_native_formats.py` `_cursor_matcher`. If the source event is already a Cursor event name, the matcher is written as-is. If the event was translated:
+    - no matcher, `""`, `"*"` or `".*"`: written as-is (omitted when absent);
+    - on `preToolUse` / `postToolUse`: split on `|`; each name must be in the table `Bash→Shell`, `Read→Read`, `Edit→Write`, `Write→Write`, `Grep→Grep`, `Task→Task`, `WebFetch→WebFetch`, `WebSearch→WebSearch`; `Edit` and `Write` must appear together (Cursor's `Write` covers both, so one alone would widen the match); the result is the translated names joined with `|`, duplicates removed;
+    - anything else (a regex, `Glob`, an MCP tool, spaces around `|`, or a matcher on any other translated event) is an `ApmError` naming the hook file, with the hint to ship `hooks-cursor.json` with Cursor's own events and matchers.
+
+Not ported from upstream's Cursor support: validation of the user's existing `.cursor/hooks.json` beyond what `merge` needs, prompt-type handlers and the extra handler fields (`prompt`, `model`, `failClosed`; the source grammar above allows only `command` and `timeout`), and the preflight that rejects hooks Cursor would also import from `.claude/settings.json`. The last one is an assumption in the requirements and a note in the authoring guide.
 
 Ownership and merge. This runs in the plan phase, so every failure happens before any write.
-1. Read the native file and the sidecar for **both** targets, configured or not. A missing file means `{}`. Malformed JSON in either is an `ApmError` (R26).
+1. For every target, read the sidecar. Read the native file only if the sidecar exists (entries to strip) or the target has planned entries (entries to add); otherwise skip the target and leave its file unread and unwritten (R26). A missing file means `{}`. Malformed JSON in a file that is read is an `ApmError`. The files are strict JSON to apm-lite. Gemini itself accepts comments in `settings.json`; apm-lite has no writer that keeps them (N7 rules out a new dependency), so a commented file that must change fails here, before any write, with the hint "apm can't keep comments in this file: remove them, or keep this package's hooks out of gemini".
 2. Strip apm-lite's previous entries:
-   - Claude: for each sidecar entry (with `_apm_source` removed), remove **one** equal entry from `hooks.<Event>` (a multiset match, as in `integration/hook_ownership.py:18`). Sidecar entries with no match were edited or removed by the user and are left alone. Drop events left empty.
+   - Claude, Cursor, Codex and Gemini: for each sidecar entry (with `_apm_source` removed), remove **one** equal entry from `hooks.<Event>` (a multiset match, as in `integration/hook_ownership.py:18`). Sidecar entries with no match were edited or removed by the user and are left alone. Drop events left empty.
    - Antigravity: if the native file has an `apm` key and there's no sidecar, raise `ApmError` (a user container named `apm`). If the `apm` container differs from the container the sidecar describes, raise `ApmError` telling the user to move their edits under another hook name. Otherwise remove the `apm` key.
-3. For each configured target, add the planned entries in package order. Claude appends under `hooks.<Event>`. Antigravity builds `{"apm": {Event: [...]}}`.
+3. For each configured target, add the planned entries in package order. Claude, Cursor, Codex and Gemini append under `hooks.<Event>`. Antigravity builds `{"apm": {Event: [...]}}`. Cursor also sets top-level `version: 1` when it adds entries and the file has no `version`; an existing `version` is left alone, and `version` isn't removed when the entries are.
 4. Native file: written (atomically, `json.dumps(indent=2)` plus a newline) only if its bytes change. Sidecar: written as `{Event: [entry + {"_apm_source": <owner>}]}` only if its bytes change, or deleted when there are no entries. Both go through the undo log (§7.1), so an interrupted run never leaves a native file and its sidecar out of step. A target no longer in `targets:` ends with its entries stripped and its sidecar deleted (R28).
 
 Ownership markers match upstream: `repo_url` for remote packages, `_local/<name>` for local packages and the root project.
@@ -323,7 +357,7 @@ Ownership markers match upstream: `repo_url` for remote packages, `_local/<name>
 `reconcile(manifest, old_lock, mode)`:
 
 1. **Resolve** (§4.3). This may write under `apm_modules/` only.
-2. **Plan:** for every package plus the root project, and every configured target, collect rule files, skill files, skill roots, hook entries and hook scripts. Package order is the resolver's breadth-first order, then the root project last. Hook files and sidecars are read and validated (§6.4).
+2. **Plan:** for every package plus the root project, and every configured target, collect rule files, skill files, skill roots, hook entries and hook scripts. Skills are collected once per distinct skills folder (§6.3). Package order is the resolver's breadth-first order, then the root project last. Hook files and sidecars are read and validated (§6.4).
 3. **Check** (R25, R30), before any write in the project tree:
    - Every planned and to-be-deleted path passes `fs.check_destination` (§7.3).
    - Duplicate planned paths (case-insensitive) are detected while collecting, and raise `ApmError` naming both owners.
@@ -360,7 +394,7 @@ A failed run is undone by the undo log (§7.1), so the classification never has 
 
 `fs.check_destination(p)` raises `ApmError` unless all of these hold:
 - `p` is relative to the project root, with no `..` component;
-- its first component is `.claude`, `.agents` or `apm_modules`, or `p` is one of `apm.yml`, `apm.lock.yaml`, `.gitignore`;
+- its first component is `.claude`, `.agents`, `.cursor`, `.codex`, `.gemini` or `apm_modules`, or `p` is one of `apm.yml`, `apm.lock.yaml`, `.gitignore`;
 - no existing component of `p` below the project root is a symlink;
 - the resolved real path stays inside the project root's real path.
 
@@ -398,9 +432,10 @@ pytest, offline, no tokens (N8). Dev deps: pytest, ruff.
 - dependency parsing: accept and reject tables, with cases ported from upstream URL-parsing tests, plus `#ref@alias`, `@` in paths, and FQDN edge cases (`git..corp`, `git_corp.example`, single label);
 - ref classification, with cases ported from upstream semver tests;
 - shape detection;
-- rule transforms for both targets;
+- rule transforms for Claude, Antigravity and Cursor; no rule files for Codex and Gemini;
 - hook source parsing and command rewrite: unquoted, double-quoted and single-quoted tokens, `$` in a path, and a script outside `.apm/hooks/` rejected;
-- hook merge and strip: duplicate user entry kept, edited Antigravity container rejected, malformed JSON rejected;
+- hook merge and strip: duplicate user entry kept, edited Antigravity container rejected, malformed JSON rejected, Cursor `version` added once and an existing one kept;
+- hook events, shapes and timeouts per target (§6.4), and the Cursor matcher table with every rejected form;
 - `fs.check_destination` with symlinked `.claude/` and `..` names;
 - per-file classification table (§7.2), every row, including an executable-bit-only change;
 - `UndoLog`: restore of overwritten, created and deleted files, and modes;
@@ -419,7 +454,15 @@ pytest, offline, no tokens (N8). Dev deps: pytest, ruff.
 - `uninstall` removes files and hook entries.
 - `--frozen`: passes when in sync; fails for each R19 drift case.
 - Collision between two packages; an untracked existing file; a user-edited tracked file kept on reinstall, on update, and on cleanup.
-- Removing `antigravity` from `targets:` deletes its files and strips its hooks.
+- Removing `antigravity` from `targets:` deletes its files and strips its hooks. The same for `cursor`, `codex` and `gemini`.
+- `targets: [antigravity, codex, cursor, gemini]` plans each `.agents/skills/<name>` once; dropping all but one keeps the skill, dropping the last deletes it.
+- A package with rules and `targets: [codex]` deploys no rule file and warns once.
+- Hook file read matrix (R26), for each of the five hook files holding malformed JSON: target not configured and no sidecar → install succeeds, file byte-identical; target configured but no package ships hooks and no sidecar → same; sidecar present (even `{}`) → fails before any write; target configured with hooks to add → fails before any write. A malformed sidecar always fails.
+- Shared skills folder: an edited skill file and a user-added file inside `.agents/skills/<name>/` survive dropping one of the sharing targets and dropping the last; two different packages that both provide `<name>` still fail before any write.
+- For each of `cursor`, `codex`, `gemini`: a user's own hook entry, an entry the user edited, and a user entry identical to a managed one all survive retiring the target.
+- Fault injection between writing a native hook file and its sidecar restores both, for the three new targets.
+- A negative, zero or boolean hook `timeout` fails before any write and leaves an existing `.codex/hooks.json` with user hooks byte-identical.
+- All five targets together: every hook config holds the package's hook in its native shape, and the deployed command runs from the directory that harness uses.
 - Conflicting immutable refs fail; branch-vs-tag conflicts warn.
 - Subset union across two requests.
 - Rejected inputs: a local dep inside a package, `http://`, shorthand, a semver-looking ref.
@@ -489,7 +532,16 @@ Order:
   - `.agents/hooks.json` with an `apm` container works. `agy` names the hooks `jsonhook__apm_<Event>_<i>_<j>`. `PreInvocation` (flat) and `PreToolUse` (nested) both fire.
   - Hooks run with **`.agents/`** as the working directory. The workspace root is only given on stdin (`workspacePaths`), not in an env var. Commands are therefore written relative to `.agents/` (§6.4). Hook scripts that need the project root should read `workspacePaths` from stdin, and `docs/user-guide/authoring-packages.md` says so.
   - A PreToolUse hook that fails (for example, a missing script) blocks every tool call. Deployed command paths must be right, which the Task 15 `agy` end-to-end check confirms.
-- **Hook matchers are harness-specific.** Authors who need both targets ship `hooks-claude.json` and `hooks-antigravity.json`. Documented in `docs/user-guide/authoring-packages.md`.
+- **Cursor, Codex and Gemini behaviour (0.2.0).** Formats were checked on 2026-11-17 against the vendor docs and source. The live Cursor and Codex check is plan Task 7; its results go to `docs/verification/test-results.md` and are summarised here once recorded:
+  - Cursor: project hooks run from the project root; `.mdc` rules take `globs` and `alwaysApply` ([docs](https://cursor.com/docs/hooks)).
+  - Codex: `hooks.json` uses nested matcher groups and the event names in §6.4 (`codex-rs/protocol/src/hooks.rs`).
+  - Gemini: hook timeouts are milliseconds; `.agents/skills` is a documented alias of `.gemini/skills`; `$GEMINI_PROJECT_DIR` is replaced in the command text by the shell-escaped session cwd (`packages/core/src/hooks/hookRunner.ts` `expandCommand`). **Not checked against a live `gemini`**, which wasn't installed.
+  - Codex and Gemini run hooks from the session's working directory. Codex commands therefore need the project to be a git root; Gemini commands need the session started in the project folder.
+  - Codex loads project hooks only for a trusted project and asks the user to review new or changed hook definitions. A deployed hook that doesn't fire can be that, not a deployment fault.
+  - A user's own hook entry that calls a script apm-lite deployed keeps its entry when the package or target is removed, but the script is deleted with the rest of the bundle (unless edited, R29). This was already true for Claude and Antigravity.
+  - Gemini's `Stop→SessionEnd` mapping is upstream's. Claude's `Stop` fires after each response and Gemini's `SessionEnd` once per session, so authors who care ship `hooks-gemini.json`.
+  - A Claude tool matcher such as `Bash` is written unchanged for Codex and Gemini. Gemini's tools have other names (`run_shell_command`), so such a hook never fires there without `hooks-gemini.json`.
+- **Hook matchers are harness-specific.** Authors who need several targets ship `hooks-<target>.json` per target. Documented in `docs/user-guide/authoring-packages.md`.
 - **Claude hook events aren't validated** beyond skipping Antigravity-only events. Claude's event list changes often, and an unknown event is ignored by Claude rather than breaking it.
 
 ## 12. Traceability
@@ -549,3 +601,23 @@ Round 2, same session, job `job-2026-10-10T15-20-50-95693-spec-review-r2`. The r
 | 12 | Test details (advisory) | Accepted (§9) |
 
 Status: consensus. No blocking finding declined. Round cap (2) reached, so no further automatic review.
+
+### 0.2.0 amendment (targets `cursor`, `codex`, `gemini`)
+
+Round 3, `deep_reasoner` (codex), job `job-2026-11-17T09-34-23-57894-spec-review`. Dispositions:
+
+| # | Finding (tag) | Disposition |
+|---|---|---|
+| 1 | A negative package `timeout` makes Codex reject the whole hook file, user hooks included (blocking) | Accepted: `timeout` must be a positive integer for every target (R22a, §6.4) |
+| 2 | Codex runs hooks from the session cwd, so `.codex/hooks/…` breaks from a subfolder (blocking) | Accepted: git-root command form from the Codex docs, a warning when the project has no `.git`, and a subfolder run in the tests (§6.1, §6.4, §11) |
+| 3 | `"$GEMINI_PROJECT_DIR/…"` breaks on paths with spaces, because Gemini substitutes an already-escaped path (blocking) | Accepted, by dropping the variable: Gemini gets upstream's relative form, since the variable is the session cwd anyway (§6.4) |
+| 4 | A valid commented Gemini `settings.json` would block installs (blocking) | Accepted in part. A hook file is now read only when there are entries to add or strip, so a commented file can't block an install that doesn't touch it (R26, §6.4). Declined: keeping comments through a rewrite. That needs a JSONC round-trip writer, which N7 rules out; the install fails before any write with a hint instead |
+| 5 | Cursor `globs` port omits upstream's escaping and misstates its quoting (advisory) | Accepted: statement corrected; a top-level comma or control character in a glob is rejected rather than escaped (§6.2) |
+| 6 | Gemini event map misses upstream's camelCase aliases (advisory) | Accepted (§6.4) |
+| 7 | Existing tests contradict the amended R26 and the version bump (advisory) | Accepted: plan Tasks 4 and 6 rewrite them explicitly |
+| 8 | Retirement, shared-folder and rollback cases missing; retained user hook can point at a deleted script (advisory) | Accepted: cases added to §9; the script limit is named in §11 and not changed |
+| 9 | Native checks can't prove everything claimed (advisory) | Accepted: plan Task 5 says what it proves, Task 7 is specified per check with a `not verified` outcome, and §11 no longer claims a live check before it has run |
+
+Round 4, same session, job `job-2026-11-17T09-34-23-57894-spec-review-r2`. The reviewer withdrew the declined part of finding 4 and raised nothing new.
+
+Status: consensus. No blocking finding declined.
