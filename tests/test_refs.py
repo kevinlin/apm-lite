@@ -1,7 +1,6 @@
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.refs import classify
+from apm_lite import ApmError, classify_ref
 
 
 @pytest.mark.parametrize(
@@ -16,7 +15,7 @@ from apm_lite.refs import classify
     ],
 )
 def test_classify_ok(ref, kind):
-    assert classify(ref) == kind
+    assert classify_ref(ref) == kind
 
 
 @pytest.mark.parametrize(
@@ -25,4 +24,4 @@ def test_classify_ok(ref, kind):
 )
 def test_classify_rejects_semver_like_and_at(ref):
     with pytest.raises(ApmError):
-        classify(ref)
+        classify_ref(ref)

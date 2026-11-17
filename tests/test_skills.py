@@ -1,9 +1,14 @@
 import pytest
 
-from apm_lite.deploy.skills import plan_skills, to_hyphen_case, validate_skill_name
-from apm_lite.errors import ApmError
-from apm_lite.model import DepSpec, ResolvedPackage
-from apm_lite.targets import TARGETS
+from apm_lite import (
+    TARGETS,
+    ApmError,
+    DepSpec,
+    ResolvedPackage,
+    plan_skills,
+    to_hyphen_case,
+    validate_skill_name,
+)
 
 
 def _pkg(tmp_path, ptype, selected=None, path="team/My_Skills", depth=1):

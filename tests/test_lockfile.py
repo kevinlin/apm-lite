@@ -3,8 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.lockfile import Lock, LockedDep, content_hash, dump, file_hash, read
+from apm_lite import ApmError, Lock, LockedDep, content_hash, dump_lock, file_hash, read
 
 GOLDEN = json.loads((Path(__file__).parent / "fixtures/hash_golden.json").read_text())
 
@@ -64,7 +63,7 @@ def _lock():
 
 
 def test_dump_shape_and_order():
-    text = dump(_lock(), "0.1.0").decode()
+    text = dump_lock(_lock(), "0.1.0").decode()
     assert text.startswith(
         "lockfile_version: '1'\napm_version: 0.1.0\ndependencies:\n- repo_url: _local/x\n"
     )
@@ -93,7 +92,7 @@ def test_dump_shape_and_order():
 
 def test_round_trip(tmp_path):
     p = tmp_path / "apm.lock.yaml"
-    p.write_bytes(dump(_lock(), "0.1.0"))
+    p.write_bytes(dump_lock(_lock(), "0.1.0"))
     lock = read(p)
     assert set(lock.deps) == {"git.test/team/base", "git.test/team/child", "./packages/x"}
     assert lock.deps["git.test/team/child"].depth == 2
@@ -148,7 +147,7 @@ def test_key_and_all_tracked_owners():
 
 def test_round_trip_preserves_every_field(tmp_path):
     p = tmp_path / "apm.lock.yaml"
-    p.write_bytes(dump(_lock(), "0.1.0"))
+    p.write_bytes(dump_lock(_lock(), "0.1.0"))
     lock = read(p)
     child = lock.deps["git.test/team/child"]
     assert (child.port, child.resolved_by, child.skill_subset) == (7999, "team/base", ["a", "z"])
@@ -161,4 +160,4 @@ def test_round_trip_preserves_every_field(tmp_path):
     )
     local = lock.deps["./packages/x"]
     assert (local.source, local.local_path, local.content_hash) == ("local", "./packages/x", None)
-    assert dump(lock, "0.1.0") == p.read_bytes()
+    assert dump_lock(lock, "0.1.0") == p.read_bytes()

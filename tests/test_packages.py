@@ -1,10 +1,16 @@
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.git import Git
-from apm_lite.lockfile import LockedDep, content_hash
-from apm_lite.manifest import parse_entry
-from apm_lite.packages import check_overlaps, inspect, install_dir, place
+from apm_lite import (
+    ApmError,
+    Git,
+    LockedDep,
+    check_overlaps,
+    content_hash,
+    inspect,
+    install_dir,
+    parse_entry,
+    place,
+)
 
 APM = "name: base\nversion: '1.0.0'\n"
 

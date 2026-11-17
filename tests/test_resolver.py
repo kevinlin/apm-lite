@@ -1,10 +1,6 @@
 import pytest
 
-from apm_lite.errors import ApmError
-from apm_lite.git import Git
-from apm_lite.lockfile import Lock, LockedDep
-from apm_lite.manifest import load
-from apm_lite.resolver import resolve
+from apm_lite import ApmError, Git, Lock, LockedDep, load, resolve
 
 
 def _apm(name, deps=()):
@@ -367,8 +363,8 @@ def test_transitive_overlap_preserves_existing_parent(git_server, project):
 
 @pytest.mark.parametrize("length", [50, 51])
 def test_depth_limit(project, tmp_path, monkeypatch, length):
-    from apm_lite import packages
-    from apm_lite.manifest import parse_entry
+    import apm_lite as packages
+    from apm_lite import parse_entry
 
     def place(proj, spec, commit, locked, git):
         return tmp_path, "sha256:fake"
