@@ -181,7 +181,7 @@ Written with `yaml.safe_dump(sort_keys=False)`. Keys in each dependency follow u
 
 ```yaml
 lockfile_version: '1'
-apm_version: 0.1.0
+apm_version: 0.2.0
 dependencies:
 - repo_url: team/pkg
   name: pkg
@@ -346,7 +346,7 @@ Ownership and merge. This runs in the plan phase, so every failure happens befor
    - Claude, Cursor, Codex and Gemini: for each sidecar entry (with `_apm_source` removed), remove **one** equal entry from `hooks.<Event>` (a multiset match, as in `integration/hook_ownership.py:18`). Sidecar entries with no match were edited or removed by the user and are left alone. Drop events left empty.
    - Antigravity: if the native file has an `apm` key and there's no sidecar, raise `ApmError` (a user container named `apm`). If the `apm` container differs from the container the sidecar describes, raise `ApmError` telling the user to move their edits under another hook name. Otherwise remove the `apm` key.
 3. For each configured target, add the planned entries in package order. Claude, Cursor, Codex and Gemini append under `hooks.<Event>`. Antigravity builds `{"apm": {Event: [...]}}`. Cursor also sets top-level `version: 1` when it adds entries and the file has no `version`; an existing `version` is left alone, and `version` isn't removed when the entries are.
-4. Native file: written (atomically, `json.dumps(indent=2)` plus a newline) only if its bytes change. Sidecar: written as `{Event: [entry + {"_apm_source": <owner>}]}` only if its bytes change, or deleted when there are no entries. Both go through the undo log (§7.1), so an interrupted run never leaves a native file and its sidecar out of step. A target no longer in `targets:` ends with its entries stripped and its sidecar deleted (R28).
+4. Native file: written (atomically, `json.dumps(indent=2)` plus a newline) only if its parsed content changes, so a file that needs no change keeps the user's formatting. Sidecar: written as `{Event: [entry + {"_apm_source": <owner>}]}` only if its bytes change, or deleted when there are no entries. Both go through the undo log (§7.1), so an interrupted run never leaves a native file and its sidecar out of step. A target no longer in `targets:` ends with its entries stripped and its sidecar deleted (R28).
 
 Ownership markers match upstream: `repo_url` for remote packages, `_local/<name>` for local packages and the root project.
 
@@ -532,7 +532,9 @@ Order:
   - `.agents/hooks.json` with an `apm` container works. `agy` names the hooks `jsonhook__apm_<Event>_<i>_<j>`. `PreInvocation` (flat) and `PreToolUse` (nested) both fire.
   - Hooks run with **`.agents/`** as the working directory. The workspace root is only given on stdin (`workspacePaths`), not in an env var. Commands are therefore written relative to `.agents/` (§6.4). Hook scripts that need the project root should read `workspacePaths` from stdin, and `docs/user-guide/authoring-packages.md` says so.
   - A PreToolUse hook that fails (for example, a missing script) blocks every tool call. Deployed command paths must be right, which the Task 15 `agy` end-to-end check confirms.
-- **Cursor, Codex and Gemini behaviour (0.2.0).** Formats were checked on 2026-11-17 against the vendor docs and source. The live Cursor and Codex check is plan Task 7; its results go to `docs/verification/test-results.md` and are summarised here once recorded:
+- **Cursor, Codex and Gemini behaviour (0.2.0).** Formats were checked on 2026-11-17 against the vendor docs and source, and Cursor and Codex against a live CLI (`cursor-agent` 2026.11.13, `codex` 0.169.0; details in `docs/verification/test-results.md`):
+  - Live, Cursor: an `alwaysApply: true` rule and a skill in `.agents/skills/` were both used; `sessionStart` fired; `preToolUse` with the translated matcher `Shell` fired on a shell command; both hooks ran from the project root and found `.cursor/hooks/<pkg>/<script>`.
+  - Live, Codex: the skill in `.agents/skills/` was used; `SessionStart` and `PreToolUse` (matcher `Bash`) fired. With the session started in a subfolder, the hook's working directory was that subfolder and the git-root command still found the script. Without project trust, Codex didn't load `.codex/hooks.json` at all. Codex's interactive hook-review prompt wasn't exercised (the run used `--dangerously-bypass-hook-trust`).
   - Cursor: project hooks run from the project root; `.mdc` rules take `globs` and `alwaysApply` ([docs](https://cursor.com/docs/hooks)).
   - Codex: `hooks.json` uses nested matcher groups and the event names in §6.4 (`codex-rs/protocol/src/hooks.rs`).
   - Gemini: hook timeouts are milliseconds; `.agents/skills` is a documented alias of `.gemini/skills`; `$GEMINI_PROJECT_DIR` is replaced in the command text by the shell-escaped session cwd (`packages/core/src/hooks/hookRunner.ts` `expandCommand`). **Not checked against a live `gemini`**, which wasn't installed.

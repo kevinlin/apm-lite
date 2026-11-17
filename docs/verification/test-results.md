@@ -111,3 +111,57 @@ In `$scratch/native/claude`, run `claude -p "$prompt" --tools Read,Skill --allow
 No corporate Git server, real TLS/SSH transport, credential helper failure, Linux host, Python 3.10–3.12, pipx installation or fresh upstream executable round trip was exercised. Native probes cover one synthetic matching Python rule and one skill, rather than every possible harness configuration or matcher. Rollback was checked with deterministic KeyboardInterrupt/error injection, not a physical terminal Ctrl-C during a particular deployment write; SIGKILL/power loss remains outside the documented guarantee.
 
 The sandbox initially rejected uv's default home cache. All successful verification used `UV_CACHE_DIR=/private/tmp/apm-lite-verification-uv`. The isolated tool and fixture directories were temporary; the saved logs, JUnit files, test sources and fixture builder are the durable evidence.
+
+## 0.2.0 addendum: cursor, codex and gemini targets
+
+Date: 2026-11-17 (Asia/Singapore). Branch `feat/targets-gemini-codex-cursor`, macOS arm64, Python 3.12.
+
+### Run summary
+
+| Check | Result | Evidence |
+|---|---|---|
+| `uv run pytest -q` | 736 passed, 1 skipped | Run on the branch after the e2e gate was merged |
+| `uv run ruff check src tests` | All checks passed | Same run |
+| Five-target subprocess gate | 24 scenarios (`TGT-01` to `TGT-24`), 64 test cases, all passed | [Scenarios](../../tests/e2e/features/targets.feature), [tests](../../tests/e2e/test_e2e_targets.py), [manual procedure](../../tests/e2e/features/targets-qa.md) |
+| Cursor native probe | 4/4 checks verified | [Results](../../tests/e2e/output/native-0.2.0/results.md), [response](../../tests/e2e/output/native-0.2.0/output-cursor.log), [hook markers](../../tests/e2e/output/native-0.2.0/markers-cursor.log) |
+| Codex native probe | 5/5 checks verified, with project trust granted and hook review bypassed | [Results](../../tests/e2e/output/native-0.2.0/results.md), [root markers](../../tests/e2e/output/native-0.2.0/markers-codex-root.log), [subfolder markers](../../tests/e2e/output/native-0.2.0/markers-codex-sub.log) |
+| Gemini native probe | Not run: `gemini` isn't installed | — |
+
+`tests/e2e/output/` is ignored by Git, as before. The scenario and test files are tracked.
+
+### Native target comparison
+
+Probe package: one rule without `applyTo`, one skill, a `SessionStart` hook and a `PreToolUse` hook with matcher `Bash`. Each hook appends its event name and working directory to a marker file. The prompt asked for the rule codeword, the skill codeword and the output of `echo probe`.
+
+| Check | Cursor (`cursor-agent` 2026.11.13) | Codex (`codex` 0.169.0) |
+|---|---|---|
+| Always-active rule codeword | Verified (`.cursor/rules/codeword.mdc`, `alwaysApply: true`) | Not applicable: apm-lite deploys no rules for Codex |
+| Skill codeword from `.agents/skills/` | Verified | Verified |
+| Session-start hook | Verified, cwd at project root | Verified, cwd at the session's folder |
+| Tool hook on a shell command | Verified; `Bash` was written as `Shell`, cwd at project root | Verified, matcher `Bash` |
+| Hook script found when the session starts in a subfolder | Not run | Verified: cwd was `project/sub`, and `$(git rev-parse --show-toplevel)` found the script |
+| Functional score | 4/4 | 5/5 |
+
+Observations:
+
+- Codex didn't load the project's `.codex/hooks.json` until the project was trusted. The first run, with only `--dangerously-bypass-hook-trust`, printed "Untrusted project-local configuration is disabled" and fired no project hook. `codex exec --trust` fixed that. It wrote a trust entry for the scratch path to `~/.codex/config.toml`; the entry was removed afterwards and the file compared equal to its copy from before the probe.
+- Codex's interactive hook-review prompt wasn't exercised.
+- In the trusted runs Codex also answered the rule codeword. It found it by searching the project and reading the Cursor rule file. That isn't rule loading.
+- The first subfolder attempt hung waiting on stdin and timed out before starting. The recorded run is the retry with stdin closed.
+
+### Requirement coverage for the new targets
+
+| Requirements | Evidence and limit |
+|---|---|
+| R2 | Manifest tests accept all five names and reject `copilot`; TGT scenarios install with each target |
+| R20 | Rule unit tests cover the Cursor format and its rejected globs; TGT-01 to TGT-04 check the files and the single warning; Cursor rule loading verified live |
+| R21 | TGT-05, TGT-06, TGT-21, TGT-22 and reconcile tests cover the shared `.agents/skills/` folder, including edited and user-added files; skill use verified live on Cursor and Codex |
+| R22, R22a, R23 | Hook unit tests cover shapes, command paths, timeouts and per-target override files for all five targets; TGT-07 to TGT-12 check the files; TGT-14 to TGT-16 run the deployed commands; hook firing verified live on Cursor and Codex |
+| R24, R24a | Hook unit tests cover every event map entry, each skipped event and every row of the Cursor matcher table; TGT-13 checks the warnings; the `Bash` to `Shell` translation fired live |
+| R25, R28, R29, R37 | Reconcile tests retire each new target with user, edited and duplicate hook entries, and inject a fault between a hook file and its sidecar for each; TGT-18 to TGT-20 check install, uninstall and retirement through the CLI |
+| R26 | Reconcile tests cover the read matrix for all five hook files, and a commented `.gemini/settings.json` |
+| R30 | Filesystem tests accept the three new roots |
+
+### Remaining boundaries for 0.2.0
+
+Gemini wasn't run at all: its rule-less deployment, skill folder, event names, millisecond timeouts and relative command paths rest on Gemini's docs and source. Codex's interactive hook review, Cursor started from a subfolder, and Cursor's "import Claude hooks" setting weren't exercised. The Linux, Python 3.10–3.11 and pipx gaps listed above still apply.
